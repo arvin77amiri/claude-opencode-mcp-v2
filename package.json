@@ -1,0 +1,75 @@
+{
+  "name": "claude-opencode-mcp-v2",
+  "version": "2.0.0-alpha.0",
+  "description": "MCP bridge that lets Claude Code delegate software-engineering tasks to OpenCode 2.x agents. Port of claude-opencode-mcp to the OpenCode v2 HTTP API.",
+  "type": "module",
+  "license": "MIT",
+  "author": "javi01",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/choruzo/claude-opencode-mcp-v2.git"
+  },
+  "homepage": "https://github.com/choruzo/claude-opencode-mcp-v2#readme",
+  "bugs": {
+    "url": "https://github.com/choruzo/claude-opencode-mcp-v2/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "opencode",
+    "coding-agent",
+    "opencode-v2"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "claude-opencode-mcp-v2": "./dist/index.js",
+    "claude-opencode-v2": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "agents",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "prepack": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && cross-env CLAUDE_OPENCODE_E2E=1 vitest run --config vitest.e2e.config.ts",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "commander": "^14.0.3",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^26.6.2",
+    "cross-env": "^10.1.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
