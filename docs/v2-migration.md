@@ -103,3 +103,25 @@ Caveat: names are generic, so they can collide with agents of the same name in a
 spawn (`opencode.url`). If the server already has e.g. its own `reviewer`, that one is used (with its own system prompt)
 instead of the bridge definition; permissions still come from the per-session ruleset. A server the bridge spawns itself
 is safe: its inline config overrides global agents of the same name.
+
+## Models: nothing is assumed
+`defaults.provider` is now `null` by default (v1 assumed `deepseek`). Resolution order:
+`model` argument > per-agent `agents.<name>.model` > `defaults.model` > the default model of the user's own OpenCode
+(`GET /api/model/default`). A bare model id (no `provider/`) is completed with `defaults.provider` when set,
+otherwise it is looked up in OpenCode's catalog and must match exactly one provider.
+
+Example (`~/.config/claude-opencode-mcp/config.json`):
+
+```json
+{
+  "agents": {
+    "researcher": { "model": "nan/deepseek-v4-flash" },
+    "reviewer":   { "model": "nan/deepseek-v4-flash" },
+    "tester":     { "model": "nan/deepseek-v4-flash" },
+    "coder":      { "model": "nan/glm5.3-flash" }
+  }
+}
+```
+
+OpenCode 2 serves a partial model catalog and agent list for ~1 s after startup; the bridge retries (≤6 s) before
+treating a model or agent as unknown.

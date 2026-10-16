@@ -22,7 +22,7 @@ import {
 import type { ModelRef, PermissionRuleset } from "./api-types.js";
 import type { OpenCodeClient } from "./client.js";
 import type { OpenCodeManager } from "./manager.js";
-import { formatModelRef, resolveModel } from "./run.js";
+import { formatModelRef, modelCatalogUntil, resolveModel } from "./run.js";
 
 export interface PrepareRunInput {
   cwd?: string | undefined;
@@ -95,7 +95,9 @@ async function assertModelAvailable(
   if (!model) return;
   let catalog: Awaited<ReturnType<OpenCodeClient["models"]>>;
   try {
-    catalog = await client.models();
+    catalog = await modelCatalogUntil(client, (entries) =>
+      entries.some((entry) => entry.providerID === model.providerID && entry.id === model.id),
+    );
   } catch (error) {
     logger.debug("could not list models; skipping model validation", {
       error: error instanceof Error ? error.message : String(error),

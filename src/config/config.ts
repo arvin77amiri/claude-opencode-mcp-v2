@@ -61,8 +61,12 @@ export const BridgeConfigSchema = z.object({
   defaults: z
     .object({
       agent: z.string().default("researcher"),
-      provider: z.string().default("deepseek"),
-      /** `provider/model` or bare model id. When null the provider default is used. */
+      /**
+       * Provider used to complete bare model ids. No provider is assumed: when null, a bare
+       * id is looked up in the OpenCode model catalog (it must be unambiguous).
+       */
+      provider: z.string().nullable().default(null),
+      /** `provider/model` or bare model id. When null the user's own OpenCode default model is used. */
       model: z.string().nullable().default(null),
     })
     .prefault({}),

@@ -12,7 +12,7 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
 An MCP server that lets **Claude Code delegate software-engineering tasks to
-OpenCode agents** — DeepSeek by default — while keeping every agent inside the
+OpenCode agents** — with the model and provider you choose — while keeping every agent inside the
 same workspace/worktree.
 
 ```text
@@ -25,7 +25,7 @@ claude-opencode-mcp (this bridge)
 OpenCode (agent runtime: tools, sessions, permissions)
      │
      ▼
-DeepSeek (or any provider configured in OpenCode)
+your model provider (anything configured in OpenCode)
      │
      ▼
 your repository — the same working tree Claude Code is using
@@ -39,7 +39,8 @@ editing and test execution. The bridge is deliberately thin.
 - [Requirements](#requirements)
 - [Install](#install)
 - [Claude Code setup](#claude-code-setup)
-- [OpenCode + DeepSeek setup](#opencode--deepseek-setup)
+- [OpenCode setup](#opencode-setup)
+- [Choose a model per agent](#choose-a-model-per-agent)
 - [Quick start](#quick-start)
 - [Tools](#tools)
 - [Agents](#agents)
@@ -79,27 +80,29 @@ editing and test execution. The bridge is deliberately thin.
 | --- | --- |
 | Node.js | 20 or newer |
 | [Claude Code](https://docs.claude.com/en/docs/claude-code) | recent 2.x |
-| [OpenCode](https://opencode.ai) | 1.18+ (tested against 1.18.32) |
-| Model provider | DeepSeek by default; any provider OpenCode supports |
+| [OpenCode](https://opencode.ai) | **2.x** (tested against 2.0.22; 1.x is not supported) |
+| Model provider | Any provider configured in OpenCode. None is assumed: your OpenCode default model, or one you set per agent |
 
 ## Install
 
+The package is published on npm (alpha channel):
+
 ```bash
-npm install -g claude-opencode-mcp-v2
+npm install -g claude-opencode-mcp-v2@alpha
 ```
 
-or run it on demand with `npx -y claude-opencode-mcp-v2` (recommended for
-`.mcp.json`).
+or run it on demand with `npx -y claude-opencode-mcp-v2@alpha` (recommended for
+`.mcp.json`). It installs two executables, `claude-opencode-mcp-v2` (the MCP
+server) and `claude-opencode-v2` (same binary).
 
-The bridge can also use an OpenCode installation from `PATH`, from
-`node_modules/.bin`, from `~/.opencode/bin`, or from an explicit
-`OPENCODE_BIN`.
+The bridge finds OpenCode in `PATH`, in `node_modules/.bin`, in
+`~/.opencode/bin`, or at an explicit `OPENCODE_BIN` / `opencode.binary`.
 
 ### From source
 
 ```bash
-git clone https://github.com/putuandy/claude-opencode-mcp.git
-cd claude-opencode-mcp
+git clone https://github.com/choruzo/claude-opencode-mcp-v2.git
+cd claude-opencode-mcp-v2
 npm install
 npm run build
 npm install -g .
@@ -116,7 +119,7 @@ Create `.mcp.json` in your project root:
   "mcpServers": {
     "opencode": {
       "command": "npx",
-      "args": ["-y", "claude-opencode-mcp"],
+      "args": ["-y", "claude-opencode-mcp-v2@alpha"],
       "type": "stdio",
       "timeout": 600000
     }
@@ -132,13 +135,13 @@ two minutes, which is fine — the result arrives when the run finishes.
 ### Option B — `claude mcp add`
 
 ```bash
-claude mcp add opencode --scope project -- npx -y claude-opencode-mcp-v2
+claude mcp add opencode --scope project -- npx -y claude-opencode-mcp-v2@alpha
 ```
 
 Or for one machine only:
 
 ```bash
-claude mcp add opencode --scope user -- npx -y claude-opencode-mcp-v2
+claude mcp add opencode --scope user -- npx -y claude-opencode-mcp-v2@alpha
 ```
 
 Verify:
@@ -152,50 +155,75 @@ Inside Claude Code, `/mcp` shows the server and its seven tools.
 > The bridge reads `CLAUDE_PROJECT_DIR`, which Claude Code sets for stdio MCP
 > servers, so delegation defaults to the project you launched Claude Code in.
 
-## OpenCode + DeepSeek setup
+## OpenCode setup
 
 The bridge starts and stops its own headless OpenCode server, so you do not need
-to run `opencode serve` yourself. You only need OpenCode installed and a
-provider authenticated.
+to run `opencode serve` yourself. You only need OpenCode 2.x installed and at
+least one provider authenticated.
 
-1. **Install OpenCode**
+1. **Install OpenCode 2.x** and check the version
 
    ```bash
-   npm install -g opencode-ai
-   # or: brew install sst/tap/opencode
-   opencode --version
+   opencode --version     # 2.x
    ```
 
-2. **Authenticate DeepSeek** (once)
+2. **Authenticate a provider** (once), or define it in your OpenCode config
 
    ```bash
-   opencode auth login      # choose DeepSeek, paste your API key
+   opencode auth login
    ```
 
-   Alternatively export `DEEPSEEK_API_KEY` before starting Claude Code; OpenCode
-   reads it for the `deepseek` provider.
-
-3. **Check the models**
+3. **List the models you can use** — the ids you will put in the bridge config
+   are `provider/model`:
 
    ```bash
-   opencode models | grep deepseek
-   # deepseek/deepseek-flash
-   # deepseek/deepseek-v4-pro
+   opencode models
+   # nan/deepseek-v4-flash
+   # nan/glm5.3-flash
+   # ...
    ```
 
 4. **(Optional) validate the project**
 
    ```bash
    cd my-project
-   claude-opencode init
+   claude-opencode-v2 init
    ```
 
    `init` only creates `.claude-opencode/` and validates the environment; it
    never modifies source code and is not required for delegation.
 
+> The OpenCode server started by the bridge also loads **your global OpenCode
+> config** (`~/.config/opencode`), including its MCP servers and providers.
+
 If you prefer to control OpenCode yourself, start `opencode serve` and point
-the bridge at it with `opencode.url`; see
+the bridge at it with `opencode.url` (plus `opencode.password` or
+`OPENCODE_SERVER_PASSWORD`, user `opencode`); see
 [docs/configuration.md](docs/configuration.md#connecting-to-an-existing-opencode-server).
+
+## Choose a model per agent
+
+Nothing is assumed: if you configure nothing, every agent uses **your own default
+model in OpenCode**. To pick models, create `~/.config/claude-opencode-mcp/config.json`
+(all projects) or `.claude-opencode/config.json` in a project:
+
+```json
+{
+  "agents": {
+    "researcher": { "model": "nan/deepseek-v4-flash" },
+    "reviewer":   { "model": "nan/deepseek-v4-flash" },
+    "tester":     { "model": "nan/deepseek-v4-flash" },
+    "coder":      { "model": "nan/glm5.3-flash" }
+  }
+}
+```
+
+Use the exact `provider/model` ids from `opencode models`. Order of precedence:
+the `model` argument of a tool call, then `agents.<name>.model`, then
+`defaults.model`, then your OpenCode default. A bare id (no `provider/`) is looked up
+in OpenCode's catalog and must match exactly one provider. Full reference:
+[docs/configuration.md](docs/configuration.md) and
+[docs/agent-configuration.md](docs/agent-configuration.md).
 
 ## Quick start
 
@@ -211,7 +239,7 @@ Then something that edits:
 
 And a full workflow:
 
-> Ask DeepSeek to inspect the authentication system, identify potential issues,
+> Ask the agents to inspect the authentication system, identify potential issues,
 > implement a fix, and review the changes.
 
 Claude Code typically orchestrates: `researcher` → `coder`
@@ -409,7 +437,7 @@ Extra file: `CLAUDE_OPENCODE_CONFIG=/path/to/config.json` (highest precedence).
   },
   "defaults": {
     "agent": "researcher",
-    "provider": "deepseek",
+    "provider": null,
     "model": null
   },
   "timeouts": {
@@ -433,8 +461,8 @@ Extra file: `CLAUDE_OPENCODE_CONFIG=/path/to/config.json` (highest precedence).
 }
 ```
 
-- `defaults.model` accepts `provider/model` or a bare model id (combined with
-  `defaults.provider`). When `null`, the provider's default model from OpenCode
+- `defaults.model` accepts `provider/model` or a bare model id (completed with
+  `defaults.provider` if set, otherwise looked up in OpenCode's catalog; ambiguous ids are rejected). When `null`, your own default model from OpenCode
   is used.
 - Provider credentials stay in OpenCode (`opencode auth login`) or environment
   variables; they are never duplicated in this config.
@@ -463,7 +491,7 @@ Full reference: [docs/configuration.md](docs/configuration.md).
 | `OPENCODE_NOT_AVAILABLE` | `npm install -g opencode-ai` or set `OPENCODE_BIN` / `opencode.binary`. |
 | `OPENCODE_START_TIMEOUT` | run `opencode serve` manually to see the error; raise `opencode.startupTimeout`; check `OPENCODE_SERVER_PASSWORD` handling. |
 | `MODEL_NOT_AVAILABLE` | authenticate a provider (`opencode auth login`) or set `defaults.model`, e.g. `"deepseek/deepseek-v4-pro"`. |
-| `ProviderAuthError` in a result | DeepSeek credentials are missing/expired; re-run `opencode auth login`. |
+| `ProviderAuthError` in a result | The provider credentials are missing or expired; re-run `opencode auth login`. |
 | `AGENT_NOT_FOUND` with an external server | add the four agents to that server's config or stop using `opencode.url`. |
 | `AGENT_TIMEOUT` | raise `timeouts.execution` or the `timeout` argument; consider a narrower task. |
 | `WORKSPACE_NOT_ALLOWED` | add the project to `workspace.allowedRoots` or clear the list. |
@@ -482,7 +510,7 @@ npm test            # unit + integration (no OpenCode needed)
 npm run build
 ```
 
-Real end-to-end tests need an OpenCode install with DeepSeek authenticated:
+Real end-to-end tests need an OpenCode 2.x install with a provider authenticated:
 
 ```bash
 npm run test:e2e                                  # checkpoints: workspace, agents, sessions, diff, abort, stdio
@@ -494,7 +522,7 @@ Layout:
 ```text
 src/
   index.ts              CLI entry (MCP server + `init`)
-  cli/                  `claude-opencode init`
+  cli/                  `claude-opencode-v2 init`
   config/               configuration loading and merging
   workspace/            resolver, validator, task context
   security/             path policy + OpenCode permission profiles

@@ -53,7 +53,7 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
           .string()
           .max(200)
           .optional()
-          .describe('Override the model, e.g. "deepseek/deepseek-v4-pro".'),
+          .describe('Override the model as "provider/model" (default: the agent or user default).'),
         timeout: z
           .number()
           .int()

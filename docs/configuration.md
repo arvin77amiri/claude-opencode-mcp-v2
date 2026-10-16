@@ -33,7 +33,7 @@ the offending fields.
   },
   "defaults": {
     "agent": "researcher",
-    "provider": "deepseek",
+    "provider": null,
     "model": null
   },
   "timeouts": {
@@ -91,8 +91,8 @@ the offending fields.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `agent` | `researcher` | Agent used when a tool call omits `agent`. |
-| `provider` | `deepseek` | Provider used to interpret bare model ids. |
-| `model` | `null` | `provider/model` or bare model id; `null` uses the provider's default model from OpenCode. |
+| `provider` | `null` | Optional provider used to complete bare model ids. No provider is assumed: when `null`, a bare id is looked up in OpenCode's model catalog and must match exactly one provider. |
+| `model` | `null` | `provider/model` or bare model id; `null` uses the default model of the user's own OpenCode. |
 
 ### `timeouts`
 

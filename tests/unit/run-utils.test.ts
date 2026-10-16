@@ -60,7 +60,7 @@ describe("resolveModel", () => {
     expect(model).toEqual({ providerID: "deepseek", id: "deepseek-v4-pro" });
   });
 
-  it("prefers a catalog model of the configured provider over a foreign default", async () => {
+  it("never assumes a provider: the user's own server default wins", async () => {
     const model = await resolveModel(
       fakeClient(
         [
@@ -71,7 +71,35 @@ describe("resolveModel", () => {
       ),
       DEFAULT_CONFIG,
     );
-    expect(model).toEqual({ providerID: "deepseek", id: "deepseek-flash" });
+    expect(model).toEqual({ providerID: "opencode", id: "free" });
+  });
+
+  it("looks a bare model id up in the catalog when no provider is configured", async () => {
+    const client = fakeClient([
+      { id: "glm5.3-flash", providerID: "nan" },
+      { id: "other", providerID: "litellm" },
+    ]);
+    expect(await resolveModel(client, DEFAULT_CONFIG, "glm5.3-flash")).toEqual({
+      providerID: "nan",
+      id: "glm5.3-flash",
+    });
+  });
+
+  it("rejects ambiguous or unknown bare model ids", async () => {
+    const client = fakeClient([
+      { id: "flash", providerID: "nan" },
+      { id: "flash", providerID: "litellm" },
+    ]);
+    await expect(resolveModel(client, DEFAULT_CONFIG, "flash")).rejects.toMatchObject({
+      code: "INVALID_ARGUMENT",
+    });
+    await expect(resolveModel(client, DEFAULT_CONFIG, "nope")).rejects.toMatchObject({
+      code: "MODEL_NOT_AVAILABLE",
+    });
+  });
+
+  it("rejects a bare id in parseModelRef without a provider", () => {
+    expect(() => parseModelRef("flash", null)).toThrowError(/no provider/);
   });
 
   it("falls back to the server default model", async () => {

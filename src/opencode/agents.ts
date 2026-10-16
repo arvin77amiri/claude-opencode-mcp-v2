@@ -374,18 +374,22 @@ export function toOpenCodeAgentConfig(
       mode: definition.mode,
       system: definition.prompt,
       permissions: toPermissionRuleset(agentPermissions(definition, config)),
-      ...(model ? { model: normalizeModel(model, config) } : {}),
+      ...(model && normalizeModel(model, config)
+        ? { model: normalizeModel(model, config) as string }
+        : {}),
       ...(definition.temperature !== undefined ? { temperature: definition.temperature } : {}),
     };
   }
   return result;
 }
 
-export function normalizeModel(model: string, config: ResolvedConfig): string {
+export function normalizeModel(model: string, config: ResolvedConfig): string | null {
   const trimmed = model.trim();
   if (!trimmed) return trimmed;
   if (trimmed.includes("/")) return trimmed;
-  return `${config.defaults.provider}/${trimmed}`;
+  // A bare id can only be completed when a provider is configured; otherwise the
+  // session model (resolved against the server catalog) is authoritative.
+  return config.defaults.provider ? `${config.defaults.provider}/${trimmed}` : null;
 }
 
 export function findAgentDefinition(

@@ -17,7 +17,7 @@ export interface InitOptions {
 const CONFIG_TEMPLATE = {
   defaults: {
     agent: "researcher",
-    provider: "deepseek",
+    provider: null,
     model: null,
   },
   workspace: {
@@ -143,14 +143,18 @@ export async function runInit(options: InitOptions): Promise<number> {
       .split("\n")
       .map((entry) => entry.trim())
       .filter(Boolean);
-    const deepseekModels = providerLines.filter((entry) => entry.startsWith("deepseek/"));
-    if (deepseekModels.length > 0) {
-      line("ok", "DeepSeek provider detected", deepseekModels.slice(0, 3).join(", "));
+    const providers = [...new Set(providerLines.map((entry) => entry.split("/")[0]))];
+    if (providers.length > 0) {
+      line(
+        "ok",
+        "Models available",
+        `${providerLines.length} models from: ${providers.slice(0, 6).join(", ")}`,
+      );
     } else {
       line(
         "warn",
-        "DeepSeek provider not detected",
-        "connect it with `opencode auth login` or set defaults.provider/model in the bridge config",
+        "No models detected",
+        "connect a provider with `opencode auth login` or define one in your OpenCode config",
       );
     }
   }

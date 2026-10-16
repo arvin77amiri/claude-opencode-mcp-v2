@@ -14,8 +14,8 @@ import type { OpenCodeClient } from "./client.js";
 
 export type { ModelRef } from "./api-types.js";
 
-/** Parse `provider/model` (or a bare model id) into a v2 model reference. */
-export function parseModelRef(model: string, defaultProvider: string): ModelRef {
+/** Parse `provider/model` into a v2 model reference; a bare id needs `defaultProvider`. */
+export function parseModelRef(model: string, defaultProvider: string | null): ModelRef {
   const trimmed = model.trim();
   if (!trimmed) {
     throw new BridgeError("INVALID_ARGUMENT", "model must not be empty");
@@ -24,7 +24,56 @@ export function parseModelRef(model: string, defaultProvider: string): ModelRef 
   if (slash > 0 && slash < trimmed.length - 1) {
     return { providerID: trimmed.slice(0, slash), id: trimmed.slice(slash + 1) };
   }
+  if (!defaultProvider) {
+    throw new BridgeError(
+      "INVALID_ARGUMENT",
+      `Model "${trimmed}" has no provider. Use "provider/model" or set defaults.provider.`,
+    );
+  }
   return { providerID: defaultProvider, id: trimmed };
+}
+
+/**
+ * Fetch the model catalog, retrying briefly until `found` accepts it. OpenCode 2 serves a
+ * partial catalog for about a second after "listening" (provider warm-up), so a miss right
+ * after startup does not yet mean "unknown model".
+ */
+export async function modelCatalogUntil(
+  client: Pick<OpenCodeClient, "models">,
+  found: (catalog: Awaited<ReturnType<OpenCodeClient["models"]>>) => boolean,
+  timeoutMs = 6_000,
+): Promise<Awaited<ReturnType<OpenCodeClient["models"]>>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const catalog = await client.models();
+    if (found(catalog) || Date.now() >= deadline) return catalog;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+}
+
+/** Find a bare model id in the server catalog; it must match exactly one provider. */
+async function lookupBareModel(
+  client: Pick<OpenCodeClient, "models">,
+  id: string,
+): Promise<ModelRef> {
+  const catalog = await modelCatalogUntil(client, (entries) =>
+    entries.some((entry) => entry.id === id),
+  );
+  const matches = catalog.filter((entry) => entry.id === id);
+  if (matches.length === 1) {
+    return { providerID: matches[0]!.providerID, id: matches[0]!.id };
+  }
+  const candidates = matches.map((entry) => `${entry.providerID}/${entry.id}`);
+  if (matches.length === 0) {
+    throw new BridgeError("MODEL_NOT_AVAILABLE", `Model "${id}" is not available in OpenCode.`, {
+      details: { requested: id },
+    });
+  }
+  throw new BridgeError(
+    "INVALID_ARGUMENT",
+    `Model "${id}" is ambiguous (${candidates.join(", ")}). Use "provider/model".`,
+    { details: { candidates } },
+  );
 }
 
 export function formatModelRef(ref: ModelRef | null): string | null {
@@ -34,9 +83,9 @@ export function formatModelRef(ref: ModelRef | null): string | null {
 /**
  * Resolve which model a delegated run should use.
  *
- * Priority: explicit request > bridge configuration > the model catalog of the
- * running OpenCode (a model of `defaults.provider` when the server default is
- * of another provider) > the server's own default model.
+ * Priority: explicit request > bridge configuration (agent / `defaults.model`) > the
+ * default model of the user's own OpenCode. Nothing is assumed: a bare id is completed
+ * with `defaults.provider` when set, otherwise looked up in the server catalog.
  */
 export async function resolveModel(
   client: Pick<OpenCodeClient, "defaultModel" | "models">,
@@ -44,7 +93,12 @@ export async function resolveModel(
   requested?: string | null,
 ): Promise<ModelRef | null> {
   const raw = requested?.trim() ? requested.trim() : config.defaults.model;
-  if (raw) return parseModelRef(raw, config.defaults.provider);
+  if (raw) {
+    if (raw.includes("/") || config.defaults.provider) {
+      return parseModelRef(raw, config.defaults.provider);
+    }
+    return lookupBareModel(client, raw);
+  }
 
   let serverDefault: { id: string; providerID: string } | null = null;
   try {
@@ -54,27 +108,14 @@ export async function resolveModel(
   } catch {
     serverDefault = null;
   }
-  if (serverDefault?.providerID === config.defaults.provider) {
-    return { providerID: serverDefault.providerID, id: serverDefault.id };
-  }
-
-  try {
-    const models = await client.models();
-    const ofProvider = models.find((model) => model.providerID === config.defaults.provider);
-    if (ofProvider) return { providerID: ofProvider.providerID, id: ofProvider.id };
-  } catch {
-    // fall through to the server default
-  }
-
-  if (serverDefault) return { providerID: serverDefault.providerID, id: serverDefault.id };
+  if (serverDefault) return serverDefault;
   throw new BridgeError(
     "MODEL_NOT_AVAILABLE",
     [
-      `No default model is available for provider "${config.defaults.provider}".`,
-      'Set `defaults.model` (for example "deepseek/deepseek-v4-pro") in the bridge config,',
-      "or configure a default model in OpenCode, or pass `model` to delegate_task.",
+      "OpenCode has no default model and none was configured.",
+      'Set `defaults.model` or an agent `model` ("provider/model") in the bridge config,',
+      "configure a default model in OpenCode, or pass `model` to delegate_task.",
     ].join(" "),
-    { details: { provider: config.defaults.provider } },
   );
 }
 

@@ -119,3 +119,8 @@ Bugs encontrados al ejecutarlo (y corregidos en `v2/`):
 - Actualizar README y docs/ (aún describen v1: `maxServers`, un servidor por workspace).
 - `steer` vs `queue` con un modelo rápido; `fork`, `compact`, `revert`.
 - Seguridad: `GET /api/config` devuelve API keys en claro; el bridge nunca debe llamarlo ni loguearlo.
+
+## Calentamiento del catálogo de modelos
+Además del 404 de agentes, `GET /api/model` devuelve un catálogo **incompleto** justo tras `listening` (p. ej. 25 modelos pero ninguno del
+proveedor `nan`, que aparece ~2 s después). El bridge reintenta (≤6 s) antes de dar un modelo por inexistente.
+Ids de `nan` en el servidor de pruebas: deepseek-v4-flash, glm5.3-flash, glm5.3, qwen3.8-flash, qwen3.6, gemma4, mimo-v2.6-flash, qwen-image-2.1.

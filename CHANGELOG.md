@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.1] - 2026-10-16
+
+### Changed
+- No model or provider is assumed any more: `defaults.provider` is `null`; a bare model id is looked up in the OpenCode
+  catalog (must be unambiguous) and, with nothing configured, the user's own OpenCode default model is used.
+- README: install, Claude Code setup and per-agent model configuration rewritten for OpenCode 2.x.
+
+### Fixed
+- Retry (≤6 s) when OpenCode 2 reports an incomplete model catalog right after startup.
+- `bin` paths normalized so npm keeps the executables.
+
+## [2.0.0-alpha.0] - 2026-10-16
+
+### Changed
+- Port to the OpenCode 2.x HTTP API (`/api/*`) with a hand-written `fetch` client; single shared server with
+  `location.directory`; SSE completion; server-side diffs; per-session permission rulesets.
+- Built-in agents renamed `researcher`, `reviewer`, `coder`, `tester` (`deepseek-*` names still accepted).
+
+### Fixed
+- Spawned servers get a generated password (OpenCode 2 otherwise answers 401).
+- Retry agent lookup during the ~1 s config warm-up after startup.
+
 ## [1.1.0] - 2026-09-30
 
 ### Added

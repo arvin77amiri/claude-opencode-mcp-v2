@@ -126,27 +126,32 @@ describe("project and config overrides", () => {
     const definitions = buildAgentDefinitions({ builtin, project: [], config: DEFAULT_CONFIG });
     const config = toOpenCodeAgentConfig(definitions, DEFAULT_CONFIG);
     expect(Object.keys(config)).toHaveLength(4);
-    expect(config["coder"]?.permissions).toContainEqual({
+    expect(config.coder?.permissions).toContainEqual({
       action: "edit",
       resource: "*",
       effect: "allow",
     });
-    expect(config["coder"]?.system).toBeTruthy();
-    expect(config["researcher"]?.permissions).toContainEqual({
+    expect(config.coder?.system).toBeTruthy();
+    expect(config.researcher?.permissions).toContainEqual({
       action: "edit",
       resource: "*",
       effect: "deny",
     });
-    expect(config["researcher"]?.permissions).toContainEqual({
+    expect(config.researcher?.permissions).toContainEqual({
       action: "bash",
       resource: "*",
       effect: "deny",
     });
-    expect(config["coder"]?.mode).toBe("all");
+    expect(config.coder?.mode).toBe("all");
   });
 
-  it("normalizes bare model ids with the default provider", () => {
-    expect(normalizeModel("deepseek-v4-pro", DEFAULT_CONFIG)).toBe("deepseek/deepseek-v4-pro");
+  it("only completes bare model ids when a provider is configured", () => {
+    expect(normalizeModel("deepseek-v4-pro", DEFAULT_CONFIG)).toBeNull();
+    const withProvider = {
+      ...DEFAULT_CONFIG,
+      defaults: { ...DEFAULT_CONFIG.defaults, provider: "deepseek" },
+    };
+    expect(normalizeModel("deepseek-v4-pro", withProvider)).toBe("deepseek/deepseek-v4-pro");
     expect(normalizeModel("deepseek/deepseek-v4-pro", DEFAULT_CONFIG)).toBe(
       "deepseek/deepseek-v4-pro",
     );
@@ -210,10 +215,10 @@ describe("permission overrides", () => {
     expect(names).toContain("researcher__rw");
 
     const config = toOpenCodeAgentConfig(expanded, DEFAULT_CONFIG);
-    const rw = config["researcher__rw"]!;
+    const rw = config.researcher__rw!;
     expect(rw.permissions).toContainEqual({ action: "edit", resource: "*", effect: "allow" });
     expect(rw.permissions).toContainEqual({ action: "edit", resource: "*.env", effect: "deny" });
-    const editor = config["researcher__edit"]!;
+    const editor = config.researcher__edit!;
     expect(editor.permissions).toContainEqual({ action: "bash", resource: "*", effect: "deny" });
     expect(editor.permissions).toContainEqual({
       action: "edit",
