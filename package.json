@@ -25,8 +25,8 @@
     "node": ">=20"
   },
   "bin": {
-    "claude-opencode-mcp-v2": "./dist/index.js",
-    "claude-opencode-v2": "./dist/index.js"
+    "claude-opencode-mcp-v2": "dist/index.js",
+    "claude-opencode-v2": "dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
