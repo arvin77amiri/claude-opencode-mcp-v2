@@ -1,8 +1,8 @@
 # Pending improvements (feedback from a real session, 2026-10-17)
 
 Source: a manager session that built a small Python project through the MCP using `researcher`, `coder`,
-`reviewer` and `tester` (models `nan/deepseek-v4-flash` and `nan/glm5.3-flash`). Items 1 and 2 of the
-original list are done (see CHANGELOG); the rest is pending.
+`reviewer` and `tester` (models `nan/deepseek-v4-flash` and `nan/glm5.3-flash`). Most items of the
+original list are done (see CHANGELOG and "Done" below); the rest is pending.
 
 ## Done
 
@@ -10,8 +10,8 @@ original list are done (see CHANGELOG); the rest is pending.
 - `get_diff` returned an unhelpful `DIFF_UNAVAILABLE` in a directory that is not a git repo. The message now explains it.
 
 - `get_diff` git fallback implemented (baseline stored on the session at creation; also feeds `files_changed`). Another
-  session confirmed that OpenCode's `/diff` is empty even inside a git repo after the agent edits files, so item 3 below
-  was not (only) a non-git problem.
+  session confirmed that OpenCode's `/diff` is empty even inside a git repo after the agent edits files, so the
+  `files_changed` of 0 was not (only) a non-git problem.
 
 - Default `cwd` documented in the tool descriptions and README (behaviour unchanged).
 
@@ -22,7 +22,7 @@ original list are done (see CHANGELOG); the rest is pending.
 1. **`get_session` shows `running` with no progress.** The session stayed `running` after the agent had written
    its files, and nothing indicates activity. Investigate what OpenCode exposes (messages, last part, timestamps)
    to report at least the last activity time. Viability not checked yet.
-5. **Coder latency.** `nan/glm5.3-flash` took 6.6 minutes for a first round and over 10 for a combined design + tests
+2. **Coder latency.** `nan/glm5.3-flash` took 6.6 minutes for a first round and over 10 for a combined design + tests
    round. This is the model, not the bridge. Try `nan/deepseek-v4-flash` or `nan/qwen3.8-flash` for `coder`, and tell
    users to split long work into short rounds.
 
