@@ -291,10 +291,11 @@ Permission overrides set here persist for the session.
 Continue a session; the agent keeps its context and permission level.
 
 ```json
-{ "session_id": "ses_...", "message": "Now implement the fix.", "allow_edits": true }
+{ "session_id": "ses_...", "message": "Now implement the fix.", "allow_edits": true, "timeout": 900000 }
 ```
 
 `allow_edits` / `allow_bash` may change the level from this message onward.
+`timeout` (milliseconds, optional) overrides the bridge's execution timeout for this message.
 
 ### `get_session`
 

@@ -665,4 +665,20 @@ describe("get_diff", () => {
     expect(result.isError).toBe(true);
     expect(parse(result).error.code).toBe("DIFF_UNAVAILABLE");
   });
+
+  it("explains in DIFF_UNAVAILABLE that the workspace is not a git repository", async () => {
+    await setupApp({});
+    const workspace = await tempDir();
+    const created = parse(
+      await client.callTool({
+        name: "create_session",
+        arguments: { cwd: workspace, agent: "coder" },
+      }),
+    );
+    const error = parse(
+      await client.callTool({ name: "get_diff", arguments: { session_id: created.session_id } }),
+    ).error;
+    expect(error.message).toContain("not a git repository");
+    expect(error.details.git_repository).toBe(false);
+  });
 });

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BridgeError } from "../../errors.js";
 import type { FileDiff } from "../../opencode/api-types.js";
 import type { DiffFileSummary } from "../../types/index.js";
+import { findGitRoot } from "../../util/git.js";
 import { requestId, truncate } from "../../util/text.js";
 import { type AppContext, assertSession, loadWorkspaceConfig } from "../execute.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
@@ -66,11 +67,14 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
           );
         }
         if (entries.length === 0) {
+          const inGitRepo = (await findGitRoot(session.cwd)) !== null;
           throw new BridgeError(
             "DIFF_UNAVAILABLE",
-            "No file changes are available for this session.",
+            inGitRepo
+              ? "No file changes are available for this session."
+              : `No file changes are available for this session. ${session.cwd} is not a git repository, and OpenCode only reports session diffs inside one: run \`git init\` there to enable get_diff, or inspect the files directly.`,
             {
-              details: { session_id: session.id, cwd: session.cwd },
+              details: { session_id: session.id, cwd: session.cwd, git_repository: inGitRepo },
             },
           );
         }

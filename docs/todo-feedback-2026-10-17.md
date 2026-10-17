@@ -1,0 +1,33 @@
+# Pending improvements (feedback from a real session, 2026-10-17)
+
+Source: a manager session that built a small Python project through the MCP using `researcher`, `coder`,
+`reviewer` and `tester` (models `nan/deepseek-v4-flash` and `nan/glm5.3-flash`). Items 1 and 2 of the
+original list are done (see CHANGELOG); the rest is pending.
+
+## Done
+
+- `send_message` had no `timeout` argument: a correction round was aborted by `AGENT_TIMEOUT` after 10 minutes. Added.
+- `get_diff` returned an unhelpful `DIFF_UNAVAILABLE` in a directory that is not a git repo. The message now explains it.
+
+## Pending
+
+1. **`get_session` shows `running` with no progress.** The session stayed `running` after the agent had written
+   its files, and nothing indicates activity. Investigate what OpenCode exposes (messages, last part, timestamps)
+   to report at least the last activity time. Viability not checked yet.
+2. **Default `cwd`.** `delegate_task` without `cwd` uses the directory the bridge was started in (here a parent folder
+   of the project). The tester ran its tests from there and failed. Preferred fix: document it in the tool descriptions
+   (and/or warn in the result); changing the behaviour is not planned.
+3. **`files_changed` was always 0.** Not confirmed whether it only happens outside a git repo (the likely cause).
+   Test it in a repo created with `git init`.
+4. **README describes a git-diff fallback for `get_diff`** ("a git diff against a baseline captured when the session
+   was created") that the v2 code does not implement: `get_diff` only returns OpenCode's session diff. Either implement
+   the fallback (it would also solve non-git or OpenCode-without-diff cases) or correct the README.
+5. **Coder latency.** `nan/glm5.3-flash` took 6.6 minutes for a first round and over 10 for a combined design + tests
+   round. This is the model, not the bridge. Try `nan/deepseek-v4-flash` or `nan/qwen3.8-flash` for `coder`, and tell
+   users to split long work into short rounds.
+
+## Observations (no action)
+
+- The reviewer and tester (1.5-2.5 min) found data-loss defects the coder had reported as fine; the
+  coder -> reviewer + tester loop is worth documenting as the recommended workflow.
+- Tasks that run longer than 120 s go to the background and notify on completion: worked as intended.

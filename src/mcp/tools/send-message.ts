@@ -22,6 +22,13 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
           .max(200)
           .describe("Session id returned by delegate_task/create_session."),
         message: z.string().min(1).max(50_000).describe("Follow-up instruction or question."),
+        timeout: z
+          .number()
+          .int()
+          .positive()
+          .max(3_600_000)
+          .optional()
+          .describe("Execution timeout in milliseconds (default from bridge config)."),
         allow_edits: z
           .boolean()
           .optional()
@@ -41,6 +48,7 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
       args: {
         session_id: string;
         message: string;
+        timeout?: number;
         allow_edits?: boolean;
         allow_bash?: boolean;
       },
@@ -66,7 +74,7 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
           compact: true,
           ...(override ? { override } : {}),
         });
-        const timeoutMs = resolveExecutionTimeout(prepared.config);
+        const timeoutMs = resolveExecutionTimeout(prepared.config, args.timeout);
 
         // Keep the session's permission level in sync with what was used.
         const promptAgent =

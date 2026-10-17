@@ -31,7 +31,7 @@ CLAUDE_OPENCODE_LOG=debug claude
 | `AGENT_ABORTED` | Run was cancelled. | Expected after `abort_session` or MCP cancellation. |
 | `AGENT_EXECUTION_FAILED` | Provider/API error during the run. | Inspect `details.statusCode`/`responseBody`; retry on `429`. |
 | `MODEL_NOT_AVAILABLE` | No model could be resolved. | `opencode auth login` or set `defaults.model`. |
-| `DIFF_UNAVAILABLE` | No changes were reported and the workspace is not a git repo. | Initialize git for reliable diffs. |
+| `DIFF_UNAVAILABLE` | No changes were reported; the error message says whether the workspace is a git repo. OpenCode only reports session diffs inside one. | Run `git init` in the workspace, or inspect the files directly. |
 | `NOT_GIT_REPOSITORY` | A git-only operation was requested outside a repo. | Initialize git. |
 | `CONFIG_INVALID` | Configuration file has wrong types or bad JSON. | Fix the file named in `details.file`. |
 | `INTERNAL_ERROR` | Unexpected bridge error. | Report with the `request_id` from the log. |

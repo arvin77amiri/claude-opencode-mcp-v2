@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `send_message` accepts an optional `timeout` (milliseconds), like `delegate_task`.
+
+### Changed
+- `get_diff`'s `DIFF_UNAVAILABLE` error now says when the workspace is not a git repository (and reports `details.git_repository`).
+
 ### Changed
 - E2E suites (`tests/e2e`) adapted to OpenCode 2.x: no `deepseek` provider is assumed; the model comes from
   `CLAUDE_OPENCODE_E2E_MODEL` (default: OpenCode's own default model, which is a free hosted one; no hard-coded model since free ones rotate).
