@@ -271,6 +271,20 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode 2.x", () => {
       );
       expect(followUp.status).toBe("completed");
       expect(followUp.summary).toContain("hello from opencode");
+
+      // get_session reports the last agent activity taken from the real message timestamps.
+      const state = parse(
+        await client.callTool({
+          name: "get_session",
+          arguments: { session_id: created.session_id },
+        }),
+      );
+      expect(state.opencode.live).toBe(true);
+      const lastActivity = Date.parse(state.opencode.last_activity_at);
+      expect(Number.isNaN(lastActivity)).toBe(false);
+      expect(lastActivity).toBeLessThanOrEqual(Date.now());
+      expect(state.opencode.idle_ms).toBeGreaterThanOrEqual(0);
+      expect(typeof state.opencode.last_activity).toBe("string");
     },
     TIMEOUT,
   );
@@ -293,6 +307,16 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode 2.x", () => {
         },
       });
       await new Promise((resolve) => setTimeout(resolve, 4000));
+
+      // Mid-run: the session is live and already shows recent activity.
+      const running = parse(
+        await client.callTool({
+          name: "get_session",
+          arguments: { session_id: created.session_id },
+        }),
+      );
+      expect(running.opencode.status).not.toBe("idle");
+      expect(Date.parse(running.opencode.last_activity_at)).toBeGreaterThan(Date.now() - 60_000);
 
       const before = Date.now();
       const aborted = parse(
