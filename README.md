@@ -370,6 +370,11 @@ Resolution order for every call:
 The first two are *required*: if they are present but invalid, the call fails
 instead of silently using a different directory.
 
+> **Always pass `cwd` explicitly.** Without it (and without `CLAUDE_PROJECT_DIR`) the
+> workspace is the directory the bridge was started in, which may be a parent of your
+> project. Agents, including `tester`, then run from there and e.g. fail to find the
+> project's tests. The resolved `cwd` is returned in the result so you can check it.
+
 Validation happens before any session is created:
 
 - the path must exist, be a directory, and be readable;

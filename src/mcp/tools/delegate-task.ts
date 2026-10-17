@@ -15,7 +15,9 @@ export const DELEGATE_TASK_DESCRIPTION = [
   "The agent explores the repository itself and returns a concise summary plus structured findings.",
   "Every agent can be granted or denied edits and shell access per call with allow_edits / allow_bash;",
   "grants still enforce the bridge security policy (sensitive-file protection for edits, no git history changes for shell).",
-  "Returns { status, session_id, summary, findings, files_changed }.",
+  "Pass cwd explicitly: without it the workspace is CLAUDE_PROJECT_DIR or the directory the bridge was started in,",
+  "which may be a parent of your project (the agent, including tester, then runs from there). The resolved cwd is returned.",
+  "Returns { status, session_id, cwd, summary, findings, files_changed }.",
 ].join(" ");
 
 export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
@@ -40,7 +42,7 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
           .max(4_096)
           .optional()
           .describe(
-            "Workspace directory. Defaults to CLAUDE_PROJECT_DIR / the server working directory.",
+            "Workspace directory. Pass it explicitly (absolute project root). Defaults to CLAUDE_PROJECT_DIR / the directory the bridge was started in, which may not be your project.",
           ),
         paths: z
           .array(z.string().max(4_096))

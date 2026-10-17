@@ -13,16 +13,15 @@ original list are done (see CHANGELOG); the rest is pending.
   session confirmed that OpenCode's `/diff` is empty even inside a git repo after the agent edits files, so item 3 below
   was not (only) a non-git problem.
 
+- Default `cwd` documented in the tool descriptions and README (behaviour unchanged).
+
+- `files_changed` in a git repo verified: the real-OpenCode E2E (12 tests, git repo) asserts `files_changed >= 1`. Passes.
+
 ## Pending
 
 1. **`get_session` shows `running` with no progress.** The session stayed `running` after the agent had written
    its files, and nothing indicates activity. Investigate what OpenCode exposes (messages, last part, timestamps)
    to report at least the last activity time. Viability not checked yet.
-2. **Default `cwd`.** `delegate_task` without `cwd` uses the directory the bridge was started in (here a parent folder
-   of the project). The tester ran its tests from there and failed. Preferred fix: document it in the tool descriptions
-   (and/or warn in the result); changing the behaviour is not planned.
-3. **`files_changed` was always 0.** Not confirmed whether it only happens outside a git repo (the likely cause).
-   Test it in a repo created with `git init`.
 5. **Coder latency.** `nan/glm5.3-flash` took 6.6 minutes for a first round and over 10 for a combined design + tests
    round. This is the model, not the bridge. Try `nan/deepseek-v4-flash` or `nan/qwen3.8-flash` for `coder`, and tell
    users to split long work into short rounds.

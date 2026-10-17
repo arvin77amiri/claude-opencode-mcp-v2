@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Documented that `delegate_task` without `cwd` uses `CLAUDE_PROJECT_DIR` or the bridge start directory (tool descriptions and README).
+
 ## [2.0.0-alpha.2] - 2026-10-17
 
 ### Added
