@@ -78,7 +78,7 @@ export const BridgeConfigSchema = z.object({
   security: SecurityConfigSchema,
   limits: z
     .object({
-      summaryChars: z.number().int().positive().default(6_000),
+      summaryChars: z.number().int().positive().default(16_000),
       sessionChars: z.number().int().positive().default(20_000),
       diffChars: z.number().int().positive().default(60_000),
     })

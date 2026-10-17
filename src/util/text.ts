@@ -31,7 +31,7 @@ export function oneLine(text: string, maxChars = 300): string {
   return collapsed.length > maxChars ? `${collapsed.slice(0, maxChars)}…` : collapsed;
 }
 
-const FINDINGS_HEADING = /^#{1,6}\s*(findings?|issues?|bugs?|risks?|problems?)\b.*$/im;
+const FINDINGS_HEADING = /^#{1,6}\s*(findings?|issues?|bugs?|risks?|problems?|root causes?)\b.*$/im;
 const ANY_HEADING = /^#{1,6}\s+(.+?)\s*$/gm;
 
 function sectionsFromMarkdown(text: string): Array<{ title: string; body: string }> {
@@ -53,7 +53,7 @@ export function extractFindings(text: string, maxFindings = 50): Finding[] {
   if (!text) return [];
   const sections = sectionsFromMarkdown(text);
   const target = sections.find((section) =>
-    /^(findings?|issues?|bugs?|risks?|problems?)\b/i.test(section.title),
+    /^(findings?|issues?|bugs?|risks?|problems?|root causes?)\b/i.test(section.title),
   );
   if (!target && !FINDINGS_HEADING.test(text)) return [];
 

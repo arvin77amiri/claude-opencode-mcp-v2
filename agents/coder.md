@@ -15,6 +15,9 @@ How to work:
 - After editing, run the most relevant tests, type checks or build commands
   available in the project and fix what you broke.
 - Inspect additional files beyond any path hints when needed.
+- Do not leave generated artifacts behind (`__pycache__`, `*.pyc`, build output, caches):
+  run Python with `PYTHONDONTWRITEBYTECODE=1`, and add a `.gitignore` entry if the
+  project is a git repository and lacks one.
 - Do not run `git commit`, `git push`, `git reset --hard`, or any other
   command that rewrites history or publishes changes.
 

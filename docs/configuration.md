@@ -47,7 +47,7 @@ the offending fields.
     "extraProtectedPatterns": []
   },
   "limits": {
-    "summaryChars": 6000,
+    "summaryChars": 16000,
     "sessionChars": 20000,
     "diffChars": 60000
   },
@@ -114,7 +114,7 @@ the offending fields.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `summaryChars` | `6000` | Maximum characters of agent output returned from a run. |
+| `summaryChars` | `16000` | Maximum characters of agent output returned from a run. |
 | `sessionChars` | `20000` | Maximum characters of the last summary returned by `get_session`. |
 | `diffChars` | `60000` | Maximum characters returned by `get_diff`. |
 

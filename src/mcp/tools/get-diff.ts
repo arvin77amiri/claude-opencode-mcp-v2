@@ -3,7 +3,7 @@ import { z } from "zod";
 import { BridgeError } from "../../errors.js";
 import type { FileDiff } from "../../opencode/api-types.js";
 import type { DiffFileSummary } from "../../types/index.js";
-import { diffSinceBaseline, findGitRoot } from "../../util/git.js";
+import { diffSinceBaseline, findGitRoot, lateGitBaseline } from "../../util/git.js";
 import { requestId, truncate } from "../../util/text.js";
 import { type AppContext, assertSession, loadWorkspaceConfig } from "../execute.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
@@ -60,8 +60,11 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
           opencodeError = "No OpenCode server is connected.";
         }
 
-        if (entries.length === 0 && session.gitBaseline) {
-          const git = await diffSinceBaseline(session.cwd, session.gitBaseline, {
+        const lateBaseline =
+          entries.length === 0 && !session.gitBaseline ? await lateGitBaseline(session.cwd) : null;
+        const baseline = session.gitBaseline ?? lateBaseline;
+        if (entries.length === 0 && baseline) {
+          const git = await diffSinceBaseline(session.cwd, baseline, {
             maxPatchChars: config.limits.diffChars,
           });
           if (git.files.length > 0) {
@@ -72,7 +75,13 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
               files: git.files,
               diff: git.patch,
               truncated: git.truncated,
-              ...(git.note ? { note: git.note } : {}),
+              ...(lateBaseline
+                ? {
+                    note: `${git.note ? `${git.note} ` : ""}The workspace became a git repository after this session was created, so the diff is against HEAD and includes any earlier uncommitted work.`,
+                  }
+                : git.note
+                  ? { note: git.note }
+                  : {}),
             });
           }
         }

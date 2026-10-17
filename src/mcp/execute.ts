@@ -7,7 +7,7 @@ import { runPrompt } from "../opencode/run.js";
 import type { SessionRegistry } from "../opencode/sessions.js";
 import type { PreparedRun } from "../opencode/setup.js";
 import type { AgentSession, DelegateResult } from "../types/index.js";
-import { diffSinceBaseline } from "../util/git.js";
+import { diffSinceBaseline, lateGitBaseline } from "../util/git.js";
 import type { Logger } from "../util/logger.js";
 import { truncate } from "../util/text.js";
 import { createProgressReporter, type ToolExtra } from "./tool-utils.js";
@@ -141,9 +141,10 @@ export async function countChangedFiles(
   } catch {
     // fall through to the git baseline
   }
-  if (!session.gitBaseline) return 0;
   try {
-    return (await diffSinceBaseline(session.cwd, session.gitBaseline)).files.length;
+    const baseline = session.gitBaseline ?? (await lateGitBaseline(session.cwd));
+    if (!baseline) return 0;
+    return (await diffSinceBaseline(session.cwd, baseline)).files.length;
   } catch {
     return 0;
   }

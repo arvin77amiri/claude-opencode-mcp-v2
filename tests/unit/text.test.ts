@@ -61,6 +61,20 @@ describe("extractFindings", () => {
     expect(findings[0]?.title).toBe("SQL injection in query builder");
   });
 
+  it("parses the tester's Root Causes section", () => {
+    const findings = extractFindings(
+      [
+        "## Test Results",
+        "- `pytest` — 2 failed",
+        "",
+        "## Root Causes",
+        "- [severity: high] Non-atomic save (todo/store.py:30) — a crash corrupts the file",
+      ].join("\n"),
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.file).toBe("todo/store.py");
+  });
+
   it("returns empty when there is no findings section", () => {
     expect(extractFindings("## Summary\nEverything is fine.\n")).toEqual([]);
   });

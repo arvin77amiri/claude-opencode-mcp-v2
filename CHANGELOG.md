@@ -10,7 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `get_session` reports `opencode.last_activity_at`, `idle_ms` and `last_activity` for live sessions, derived from the newest message and part timestamps.
 
+### Fixed
+- `get_diff` and `files_changed` now work when the workspace became a git repository after the session was created (`git init` mid-session): they diff against HEAD, with a note.
+- Findings are extracted from the tester's `## Root Causes` section too (they came back empty).
+
 ### Changed
+- `limits.summaryChars` default raised from 6000 to 16000; reviewer/tester replies were being truncated.
+- The `coder` agent is told not to leave `__pycache__` and other generated artifacts behind.
 - Documented that `delegate_task` without `cwd` uses `CLAUDE_PROJECT_DIR` or the bridge start directory (tool descriptions and README).
 
 ## [2.0.0-alpha.2] - 2026-10-17

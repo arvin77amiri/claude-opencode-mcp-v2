@@ -112,6 +112,17 @@ export async function captureGitBaseline(cwd: string): Promise<GitBaseline | nul
   };
 }
 
+/**
+ * Baseline for a session created before its workspace was a git repository
+ * (for example `git init` run mid-session): compare against HEAD, so every
+ * uncommitted or untracked file counts as changed.
+ */
+export async function lateGitBaseline(cwd: string): Promise<GitBaseline | null> {
+  if (!(await isGitRepository(cwd))) return null;
+  const head = await currentHead(cwd);
+  return { head, stashRef: null, untracked: [], unborn: head === null, dirty: false };
+}
+
 export interface GitDiffResult {
   patch: string;
   files: Array<{

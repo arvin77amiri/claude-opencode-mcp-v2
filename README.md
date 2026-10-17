@@ -461,7 +461,7 @@ Extra file: `CLAUDE_OPENCODE_CONFIG=/path/to/config.json` (highest precedence).
     "extraProtectedPatterns": []
   },
   "limits": {
-    "summaryChars": 6000,
+    "summaryChars": 16000,
     "sessionChars": 20000,
     "diffChars": 60000
   },
