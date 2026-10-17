@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- E2E suites (`tests/e2e`) adapted to OpenCode 2.x: no `deepseek` provider is assumed; the model comes from
+  `CLAUDE_OPENCODE_E2E_MODEL` (default: OpenCode's own default model, which is a free hosted one; no hard-coded model since free ones rotate).
+
+### Security
+- **The v1 permission names `bash` and `task` were ignored by OpenCode 2**, which evaluates `shell` and `subagent`: shell and
+  subagent restrictions (including git commit/push denial and the read-only profiles) never applied. Rules now use the v2 names.
+- `grep` no longer leaks protected files: it is denied while `protectEnvFiles` is on (it is authorised by pattern, not by file).
+- Shell rules now match anywhere in the command line: `git add -A && git commit` / `git -C . push` are denied, and so is
+  shell access to sensitive files (`cat .env`).
+
+### Fixed
+- The first delegation after startup failed with "no default model": the default-model lookup now retries (≤6 s) while
+  OpenCode 2 warms up.
+- Windows: stopping the bridge left the real OpenCode server running when it was started through the `opencode.cmd`
+  shim (only `cmd.exe` was killed); the whole process tree is now terminated.
+
+### Added
+- Regression tests for the generated server password (`tests/integration/manager-password.test.ts`) and for the
+  config warm-up 404 on agent lookup (`mcp-tools.test.ts`, `agentWarmupMs` in the fake server), plus a cold-start
+  e2e case that checks the very first delegation runs on the requested agent.
+
 ## [2.0.0-alpha.1] - 2026-10-16
 
 ### Changed

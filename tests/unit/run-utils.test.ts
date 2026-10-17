@@ -74,6 +74,28 @@ describe("resolveModel", () => {
     expect(model).toEqual({ providerID: "opencode", id: "free" });
   });
 
+  it("waits for the server default model during the OpenCode startup warm-up", async () => {
+    // Regression: the very first call after startup got "no default model" because
+    // OpenCode 2 reports none for ~1 s while its providers load.
+    const defaultModel = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ id: "free", providerID: "opencode" });
+    const client = { defaultModel, models: vi.fn(async () => []) } as never;
+    expect(await resolveModel(client, DEFAULT_CONFIG)).toEqual({
+      providerID: "opencode",
+      id: "free",
+    });
+    expect(defaultModel).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up when the server never reports a default model", async () => {
+    await expect(
+      resolveModel(fakeClient([], null), DEFAULT_CONFIG, undefined, 400),
+    ).rejects.toMatchObject({ code: "MODEL_NOT_AVAILABLE" });
+  });
+
   it("looks a bare model id up in the catalog when no provider is configured", async () => {
     const client = fakeClient([
       { id: "glm5.3-flash", providerID: "nan" },

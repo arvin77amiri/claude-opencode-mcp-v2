@@ -36,17 +36,21 @@ function sensitiveFileRules(security: SecurityConfig): PermissionRule {
   return rules;
 }
 
-function gitSafetyBashRules(security: SecurityConfig): Record<string, PermissionAction> {
+/**
+ * Shell rules. OpenCode 2 matches them per simple command (`git add -A && git commit -m x`
+ * is checked as `git add -A` and `git commit -m x`), but the patterns stay deliberately loose
+ * (`*git*commit*`): a prefix pattern such as `git commit*` is bypassed by `git -C . commit`.
+ * Sensitive files are blocked the same way, because `cat .env` would otherwise
+ * undo the `read` protection.
+ */
+function shellRules(security: SecurityConfig): Record<string, PermissionAction> {
   const rules: Record<string, PermissionAction> = { "*": "allow" };
-  if (security.denyGitPush) {
-    rules["git push*"] = "deny";
-    rules["git -C * push*"] = "deny";
-    rules["git -c * push*"] = "deny";
-  }
-  if (security.denyGitCommit) {
-    rules["git commit*"] = "deny";
-    rules["git -C * commit*"] = "deny";
-    rules["git -c * commit*"] = "deny";
+  if (security.denyGitPush) rules["*git*push*"] = "deny";
+  if (security.denyGitCommit) rules["*git*commit*"] = "deny";
+  if (security.protectEnvFiles) {
+    for (const pattern of DEFAULT_SENSITIVE_PATTERNS) rules[`*${pattern}*`] = "deny";
+    for (const pattern of security.extraProtectedPatterns ?? []) rules[`*${pattern}*`] = "deny";
+    for (const pattern of SENSITIVE_ALLOWLIST) rules[`*${pattern}*`] = "allow";
   }
   return rules;
 }
@@ -66,14 +70,18 @@ export function buildPermissions(
   const base: PermissionConfig = {
     read: sensitiveFileRules(security),
     glob: "allow",
-    grep: "allow",
+    // `grep` is authorised by its search pattern, not by the files it reads, so it cannot
+    // honour the per-file `read` rules above and would print `.env` contents.
+    grep: security.protectEnvFiles ? "deny" : "allow",
     list: "allow",
     todowrite: "allow",
     webfetch: "allow",
     websearch: "allow",
     lsp: "allow",
     skill: "allow",
-    task: "deny",
+    // OpenCode 2.x names these `subagent` and `shell` (v1: `task` / `bash`); a rule under the
+    // old name is silently ignored.
+    subagent: "deny",
     question: "deny",
     doom_loop: "deny",
     external_directory: externalDirectory,
@@ -86,9 +94,9 @@ export function buildPermissions(
   }
 
   if (capabilities.canRunBash) {
-    base.bash = gitSafetyBashRules(security);
+    base.shell = shellRules(security);
   } else {
-    base.bash = "deny";
+    base.shell = "deny";
   }
 
   return base;

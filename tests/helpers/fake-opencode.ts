@@ -37,6 +37,11 @@ export interface FakeOpenCodeOptions {
   reportedDirectory?: string;
   /** Password for HTTP Basic auth (user `opencode`); no auth when undefined. */
   password?: string;
+  /**
+   * Mimics OpenCode 2's config warm-up: `GET /api/agent/{id}` answers 404 for
+   * this many ms after `listen()`, even for agents that exist.
+   */
+  agentWarmupMs?: number;
   /** Model catalog; defaults to deepseek/deepseek-v4-pro only. */
   models?: Array<{ id: string; providerID: string }>;
   diff?: FileDiff[];
@@ -89,6 +94,9 @@ export class FakeOpenCode {
   private readonly options: FakeOpenCodeOptions;
   private readonly streams = new Set<http.ServerResponse>();
   private counter = 0;
+  private listenedAt = 0;
+  /** Number of `GET /api/agent/{id}` requests answered with 404 during warm-up. */
+  warmupMisses = 0;
 
   constructor(options: FakeOpenCodeOptions = {}) {
     this.options = options;
@@ -105,6 +113,7 @@ export class FakeOpenCode {
 
   async listen(): Promise<string> {
     await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
+    this.listenedAt = Date.now();
     const address = this.server.address() as AddressInfo;
     return `http://127.0.0.1:${address.port}`;
   }
@@ -265,7 +274,9 @@ export class FakeOpenCode {
     if (agentMatch && method === "GET") {
       const id = decodeURIComponent(agentMatch[1]!);
       const agent = this.agents.find((entry) => entry.name === id);
-      if (!agent) {
+      const warmingUp = Date.now() - this.listenedAt < (this.options.agentWarmupMs ?? 0);
+      if (warmingUp && agent) this.warmupMisses += 1;
+      if (!agent || warmingUp) {
         this.json(res, { _tag: "AgentNotFoundError", message: id }, 404);
         return;
       }

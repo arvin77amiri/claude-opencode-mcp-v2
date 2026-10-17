@@ -49,7 +49,7 @@ obsolete in v2 and ignored.
 The bridge injects four agents (`researcher`, `reviewer`,
 `coder`, `tester`) with explicit `permission` rules covering
 every permission key OpenCode supports: `read`, `edit`, `glob`, `grep`, `list`,
-`bash`, `task`, `external_directory`, `todowrite`, `webfetch`, `websearch`,
+`shell` (not `bash`), `subagent` (not `task`), `external_directory`, `todowrite`, `webfetch`, `websearch`,
 `lsp`, `skill`, `question`, `doom_loop`.
 
 Nothing is set to `ask`: the bridge is headless, and an `ask` rule would block a

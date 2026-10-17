@@ -13,6 +13,9 @@ import { SessionRegistry } from "../../src/opencode/sessions.js";
 import { createLogger } from "../../src/util/logger.js";
 
 const ENABLED = process.env.CLAUDE_OPENCODE_E2E_WORKFLOW === "1";
+const E2E_MODEL = process.env.CLAUDE_OPENCODE_E2E_MODEL ?? null;
+// The OpenCode server may still hold its cwd for a moment on Windows (EBUSY).
+const RM_OPTIONS = { recursive: true, force: true, maxRetries: 10, retryDelay: 300 };
 const TIMEOUT = 420_000;
 
 function parse(result: Awaited<ReturnType<Client["callTool"]>>): any {
@@ -162,11 +165,9 @@ describe.skipIf(!ENABLED)("Phase 7 acceptance: researcher -> coder -> reviewer -
     project = await createDemoProject();
     const stateDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "co-demo-state-"));
     config = BridgeConfigSchema.parse({
-      defaults: {
-        agent: "researcher",
-        provider: "deepseek",
-        model: process.env.CLAUDE_OPENCODE_E2E_MODEL ?? "deepseek/deepseek-v4-pro",
-      },
+      // No provider or model is assumed in v2: unless CLAUDE_OPENCODE_E2E_MODEL (`provider/model`) is set,
+      // OpenCode's own default model is used (free hosted models rotate, so none is hard-coded).
+      defaults: { agent: "researcher", model: E2E_MODEL },
       timeouts: { execution: TIMEOUT },
     });
     const logger = createLogger({ level: "silent" });
@@ -195,7 +196,7 @@ describe.skipIf(!ENABLED)("Phase 7 acceptance: researcher -> coder -> reviewer -
       await server?.close();
     } catch {}
     await manager?.stopAll();
-    if (project) await fs.promises.rm(project, { recursive: true, force: true });
+    if (project) await fs.promises.rm(project, RM_OPTIONS);
   });
 
   it(

@@ -115,7 +115,7 @@ Bugs encontrados al ejecutarlo (y corregidos en `v2/`):
 ## Pendiente
 - `--stdio`, `/api/pair`, `x-opencode-ticket` (sin explorar).
 - Aislar la config global del usuario en el servidor lanzado por el bridge (punto 3).
-- Adaptar `tests/e2e/*` a v2 (siguen asumiendo proveedor `deepseek`) y añadir test de regresión del 404 de calentamiento y de la contraseña generada.
+- ~~Adaptar `tests/e2e/*` a v2 y añadir tests de regresión del 404 de calentamiento y de la contraseña generada~~ — hecho (`tests/integration/manager-password.test.ts`, `mcp-tools.test.ts`, caso «cold start» en `tests/e2e/real-opencode.test.ts`).
 - Actualizar README y docs/ (aún describen v1: `maxServers`, un servidor por workspace).
 - `steer` vs `queue` con un modelo rápido; `fork`, `compact`, `revert`.
 - Seguridad: `GET /api/config` devuelve API keys en claro; el bridge nunca debe llamarlo ni loguearlo.
@@ -124,3 +124,10 @@ Bugs encontrados al ejecutarlo (y corregidos en `v2/`):
 Además del 404 de agentes, `GET /api/model` devuelve un catálogo **incompleto** justo tras `listening` (p. ej. 25 modelos pero ninguno del
 proveedor `nan`, que aparece ~2 s después). El bridge reintenta (≤6 s) antes de dar un modelo por inexistente.
 Ids de `nan` en el servidor de pruebas: deepseek-v4-flash, glm5.3-flash, glm5.3, qwen3.8-flash, qwen3.6, gemma4, mimo-v2.6-flash, qwen-image-2.1.
+
+## Huecos de política detectados por el e2e adaptado (OpenCode 2.0.22) — corregidos
+- `grep` devolvía el contenido de `.env` pese al deny de `read` (evalúa solo el patrón de búsqueda). Ahora `grep` es `deny` con `protectEnvFiles`.
+- Acciones reales de v2: `shell` (no `bash`; recursos = subcomandos separados) y `subagent` (no `task`); `list` se evalúa como `read`. Las reglas `bash`/`task` se ignoraban.
+- `GET /api/session/{id}/permission` responde 400 si la petición de `grep`/`glob` lleva `metadata.path`/`include` indefinido.
+- `git commit*` solo casaba como prefijo (`git add -A && git commit` pasaba). Ahora `*git*commit*` / `*git*push*`, y `bash` deniega `*<patrón sensible>*`.
+- En Windows, `kill()` sobre el shim `opencode.cmd` dejaba huérfano el servidor real (corregido: `taskkill /T /F` en `manager.ts`).

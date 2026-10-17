@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { deepMerge, type ResolvedConfig } from "../config/config.js";
 import { BridgeError } from "../errors.js";
@@ -54,6 +54,22 @@ interface SpawnOutcome {
 }
 
 const LOCAL_KEY = "local";
+
+/**
+ * Kill a spawned server. On Windows the child is often a `cmd.exe` running the
+ * `opencode.cmd` shim, and killing it alone leaves the real server orphaned
+ * (still holding the port and the workspace directory), so kill the whole tree.
+ */
+function killProcess(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (process.platform === "win32" && child.pid !== undefined) {
+    const result = spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    if (result.status === 0) return;
+  }
+  child.kill(signal);
+}
 
 function mergeInlineConfig(
   existing: string | undefined,
@@ -217,13 +233,13 @@ export class OpenCodeManager {
     const { url, process: child } = await this.spawnServer(input, binary.command, auth, stderr);
 
     if (this.stopping) {
-      child.kill("SIGKILL");
+      killProcess(child, "SIGKILL");
       throw new BridgeError("OPENCODE_UNAVAILABLE", "The bridge is shutting down.");
     }
 
     const health = await this.waitForHealth(url, auth);
     if (!health) {
-      child.kill("SIGKILL");
+      killProcess(child, "SIGKILL");
       if (this.stopping) {
         throw new BridgeError("OPENCODE_UNAVAILABLE", "The bridge is shutting down.");
       }
@@ -235,7 +251,7 @@ export class OpenCodeManager {
     }
 
     if (this.stopping) {
-      child.kill("SIGKILL");
+      killProcess(child, "SIGKILL");
       throw new BridgeError("OPENCODE_UNAVAILABLE", "The bridge is shutting down.");
     }
 
@@ -325,7 +341,7 @@ export class OpenCodeManager {
       const timeout = setTimeout(() => {
         if (settled) return;
         settled = true;
-        child.kill("SIGKILL");
+        killProcess(child, "SIGKILL");
         reject(
           new BridgeError(
             "OPENCODE_START_TIMEOUT",
@@ -346,7 +362,7 @@ export class OpenCodeManager {
       const fail = (error: BridgeError) => {
         finish(() => {
           if (child.exitCode === null && child.signalCode === null) {
-            child.kill("SIGKILL");
+            killProcess(child, "SIGKILL");
           }
           reject(error);
         });
@@ -467,14 +483,14 @@ export class OpenCodeManager {
       };
       child.once("exit", finalize);
       try {
-        child.kill("SIGTERM");
+        killProcess(child, "SIGTERM");
       } catch {
         finalize();
         return;
       }
       const killTimer = setTimeout(() => {
         try {
-          child.kill("SIGKILL");
+          killProcess(child, "SIGKILL");
         } catch {
           // already gone
         }
@@ -498,7 +514,7 @@ export class OpenCodeManager {
     for (const child of this.children) {
       if (child.exitCode === null && child.signalCode === null) {
         try {
-          child.kill("SIGKILL");
+          killProcess(child, "SIGKILL");
         } catch {
           // already gone
         }

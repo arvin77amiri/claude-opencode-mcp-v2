@@ -138,7 +138,7 @@ describe("project and config overrides", () => {
       effect: "deny",
     });
     expect(config.researcher?.permissions).toContainEqual({
-      action: "bash",
+      action: "shell",
       resource: "*",
       effect: "deny",
     });
@@ -219,7 +219,7 @@ describe("permission overrides", () => {
     expect(rw.permissions).toContainEqual({ action: "edit", resource: "*", effect: "allow" });
     expect(rw.permissions).toContainEqual({ action: "edit", resource: "*.env", effect: "deny" });
     const editor = config.researcher__edit!;
-    expect(editor.permissions).toContainEqual({ action: "bash", resource: "*", effect: "deny" });
+    expect(editor.permissions).toContainEqual({ action: "shell", resource: "*", effect: "deny" });
     expect(editor.permissions).toContainEqual({
       action: "edit",
       resource: "*.env",

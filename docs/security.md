@@ -32,7 +32,7 @@ Add your own patterns with `security.extraProtectedPatterns`.
 
 ## Git safety
 
-For agents that can run shell commands (`coder`, `tester`), bash rules deny:
+For agents that can run shell commands (`coder`, `tester`), shell rules deny:
 
 ```text
 git push*     git -C * push*     git -c * push*
@@ -51,12 +51,20 @@ no automatic commit or push anywhere in the codebase.
 | --- | --- | --- | --- | --- |
 | `read` | allow (+ sensitive denies) | same | same | same |
 | `edit` | deny | deny | allow (+ sensitive denies) | deny |
-| `bash` | deny | deny | allow (git commit/push denied) | allow (git commit/push denied) |
-| `glob`, `grep`, `list`, `lsp` | allow | allow | allow | allow |
+| `shell` (OpenCode 2's name for `bash`) | deny | deny | allow (git commit/push and sensitive files denied) | allow (same denies) |
+| `grep` | deny¹ | deny¹ | deny¹ | deny¹ |
+| `glob`, `list`, `lsp` | allow | allow | allow | allow |
 | `webfetch`, `websearch`, `skill`, `todowrite` | allow | allow | allow | allow |
-| `task` (subagents) | deny | deny | deny | deny |
+| `subagent` (was `task` in v1) | deny | deny | deny | deny |
 | `external_directory` | deny | deny | deny | deny |
 | `question`, `doom_loop` | deny | deny | deny | deny |
+
+¹ `grep` is authorised by its search pattern, not by the files it reads, so it
+cannot honour the per-file `read` denies and would print `.env` contents. It is
+denied while `security.protectEnvFiles` is on (use `glob` + `read`). Shell rules
+match the whole command line (`*git*commit*`), so compound commands such as
+`git add -A && git commit` and `cat .env` are denied too (this also blocks the
+occasional harmless command that merely mentions `git commit`).
 
 `externalDirectory` can be set to `allow`, `ask` or `deny`. `ask` is
 discouraged: nothing answers the prompt in headless mode, although the bridge

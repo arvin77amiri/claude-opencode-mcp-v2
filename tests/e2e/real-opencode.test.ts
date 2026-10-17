@@ -14,7 +14,10 @@ import { SessionRegistry } from "../../src/opencode/sessions.js";
 import { createLogger } from "../../src/util/logger.js";
 
 const ENABLED = process.env.CLAUDE_OPENCODE_E2E === "1";
-const TIMEOUT = 300_000;
+const E2E_MODEL = process.env.CLAUDE_OPENCODE_E2E_MODEL ?? null;
+// The OpenCode server may still hold its cwd for a moment on Windows (EBUSY).
+const RM_OPTIONS = { recursive: true, force: true, maxRetries: 10, retryDelay: 300 };
+const TIMEOUT = 580_000;
 
 function git(cwd: string, args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore" });
@@ -64,7 +67,7 @@ function patchClientTimeout(target: Client, timeout: number): void {
     )) as Client["callTool"];
 }
 
-describe.skipIf(!ENABLED)("E2E with real OpenCode + DeepSeek", () => {
+describe.skipIf(!ENABLED)("E2E with real OpenCode 2.x", () => {
   let repoA: string;
   let repoB: string;
   let client: Client;
@@ -80,11 +83,9 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode + DeepSeek", () => {
     stateDirs.push(stateDir);
 
     config = BridgeConfigSchema.parse({
-      defaults: {
-        agent: "researcher",
-        provider: "deepseek",
-        model: process.env.CLAUDE_OPENCODE_E2E_MODEL ?? "deepseek/deepseek-v4-pro",
-      },
+      // No provider or model is assumed in v2: unless CLAUDE_OPENCODE_E2E_MODEL (`provider/model`) is set,
+      // OpenCode's own default model is used (free hosted models rotate, so none is hard-coded).
+      defaults: { agent: "researcher", model: E2E_MODEL },
       timeouts: { execution: TIMEOUT },
     });
     const logger = createLogger({ level: "silent" });
@@ -113,11 +114,46 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode + DeepSeek", () => {
       await server?.close();
     } catch {}
     await manager?.stopAll();
-    for (const dir of stateDirs) await fs.promises.rm(dir, { recursive: true, force: true });
+    for (const dir of stateDirs) await fs.promises.rm(dir, RM_OPTIONS);
     for (const dir of [repoA, repoB]) {
-      if (dir) await fs.promises.rm(dir, { recursive: true, force: true });
+      if (dir) await fs.promises.rm(dir, RM_OPTIONS);
     }
   });
+
+  it(
+    "cold start: first delegation runs on the real agent with the generated server password",
+    async () => {
+      // Regression for the two startup bugs found against OpenCode 2.x:
+      //  1. `opencode serve` without OPENCODE_SERVER_PASSWORD answers 401 to the bridge
+      //     unless the bridge generates and passes its own password.
+      //  2. Right after "listening", GET /api/agent/{id} is 404 for agents defined through
+      //     OPENCODE_CONFIG_CONTENT (~1 s warm-up); the bridge used to fall back to `build`
+      //     plus a prompt preamble instead of the requested agent.
+      // This is the very first call on a freshly spawned server, so it hits both windows.
+      expect(manager.existingClient()).toBeNull();
+      const result = parse(
+        await client.callTool({
+          name: "delegate_task",
+          arguments: { cwd: repoA, agent: "researcher", task: "Reply with exactly: hi" },
+        }),
+      );
+      expect(result.status).toBe("completed");
+
+      const live = manager.existingClient();
+      expect(live).not.toBeNull();
+      const page = await live!.messages(result.session_id, { order: "asc", limit: 20 });
+      const assistants = page.data.filter((message) => message.type === "assistant");
+      expect(assistants.length).toBeGreaterThan(0);
+      for (const message of assistants) {
+        expect((message as { agent?: string }).agent).toBe("researcher");
+      }
+      const preamble = page.data.some(
+        (message) => message.type === "user" && String(message.text ?? "").includes("---"),
+      );
+      expect(preamble).toBe(false);
+    },
+    TIMEOUT,
+  );
 
   it(
     "Phase 1/2: researcher sees the right repository and never confuses workspaces",
@@ -185,14 +221,14 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode + DeepSeek", () => {
           arguments: {
             cwd: repoA,
             agent: "coder",
-            task: "Create a file named coder-created.txt whose content is exactly the line: hello from deepseek. Then run `git add -A && git commit -m e2e` once. Report exactly what happened.",
+            task: "Create a file named coder-created.txt whose content is exactly the line: hello from opencode. Then run `git add -A && git commit -m e2e` once. Report exactly what happened.",
           },
         }),
       );
       expect(result.status).toBe("completed");
 
       const created = await fs.promises.readFile(path.join(repoA, "coder-created.txt"), "utf8");
-      expect(created.trim()).toBe("hello from deepseek");
+      expect(created.trim().replace(/\.$/, "")).toBe("hello from opencode");
 
       const log = execFileSync("git", ["log", "--oneline"], { cwd: repoA, encoding: "utf8" });
       expect(log.trim().split("\n")).toHaveLength(1);
@@ -200,7 +236,7 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode + DeepSeek", () => {
       const diff = parse(
         await client.callTool({ name: "get_diff", arguments: { session_id: result.session_id } }),
       );
-      expect(diff.source).toBe("git");
+      expect(diff.source).toBe("opencode");
       expect(diff.files.map((f: { file: string }) => f.file)).toContain("coder-created.txt");
       expect(result.files_changed).toBeGreaterThanOrEqual(1);
     },
@@ -234,7 +270,7 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode + DeepSeek", () => {
         }),
       );
       expect(followUp.status).toBe("completed");
-      expect(followUp.summary).toContain("hello from deepseek");
+      expect(followUp.summary).toContain("hello from opencode");
     },
     TIMEOUT,
   );
@@ -389,11 +425,22 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode + DeepSeek", () => {
   it(
     "Checkpoint 3: stdio MCP server works end-to-end",
     async () => {
+      const configDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "co-e2e-cfg-"));
+      stateDirs.push(configDir);
+      const configPath = path.join(configDir, "config.json");
+      await fs.promises.writeFile(
+        configPath,
+        JSON.stringify({ defaults: { model: E2E_MODEL }, timeouts: { execution: TIMEOUT } }),
+      );
       const transport = new StdioClientTransport({
         command: "node",
         args: ["dist/index.js"],
         cwd: process.cwd(),
-        env: { ...process.env, CLAUDE_OPENCODE_LOG: "silent" },
+        env: {
+          ...(process.env as Record<string, string>),
+          CLAUDE_OPENCODE_LOG: "silent",
+          CLAUDE_OPENCODE_CONFIG: configPath,
+        },
       });
       const stdioClient = new Client({ name: "e2e-stdio", version: "0.0.0" });
       await stdioClient.connect(transport);

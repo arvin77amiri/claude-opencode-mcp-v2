@@ -369,6 +369,24 @@ describe("delegate_task", () => {
     expect(fake.prompts[0]?.text).toContain("---");
   });
 
+  it("retries the agent lookup during the OpenCode config warm-up instead of using the preamble", async () => {
+    // Regression: right after startup OpenCode 2 answers 404 for agents from
+    // OPENCODE_CONFIG_CONTENT; the bridge used to take that for "unknown agent"
+    // and ran the task as `build` with a prompt preamble.
+    await setupApp({ fakeOptions: { agentWarmupMs: 700 } });
+    const workspace = await tempDir();
+    const result = parse(
+      await client.callTool({
+        name: "delegate_task",
+        arguments: { cwd: workspace, agent: "reviewer", task: "Inspect the layout" },
+      }),
+    );
+    expect(result.status).toBe("completed");
+    expect(fake.warmupMisses).toBeGreaterThan(0);
+    expect(fake.prompts[0]?.agent).toBe("reviewer");
+    expect(fake.prompts[0]?.text).not.toContain("---");
+  });
+
   it("rejects models missing from the OpenCode catalog", async () => {
     await setupApp({});
     const workspace = await tempDir();
@@ -392,7 +410,7 @@ describe("delegate_task", () => {
     expect(session.directory).toBe(await fs.promises.realpath(workspace));
     expect(session.model).toEqual({ providerID: "deepseek", id: "deepseek-v4-pro" });
     expect(session.permissions).toContainEqual({ action: "edit", resource: "*", effect: "deny" });
-    expect(session.permissions).toContainEqual({ action: "bash", resource: "*", effect: "deny" });
+    expect(session.permissions).toContainEqual({ action: "shell", resource: "*", effect: "deny" });
     expect(session.permissions.some((rule) => rule.effect === "ask")).toBe(false);
   });
 

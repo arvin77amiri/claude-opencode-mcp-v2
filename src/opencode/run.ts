@@ -91,6 +91,7 @@ export async function resolveModel(
   client: Pick<OpenCodeClient, "defaultModel" | "models">,
   config: ResolvedConfig,
   requested?: string | null,
+  defaultModelTimeoutMs = 6_000,
 ): Promise<ModelRef | null> {
   const raw = requested?.trim() ? requested.trim() : config.defaults.model;
   if (raw) {
@@ -100,13 +101,20 @@ export async function resolveModel(
     return lookupBareModel(client, raw);
   }
 
+  // Right after startup OpenCode 2 reports no default model until its provider
+  // warm-up ends (~1 s), so retry briefly before concluding there is none.
   let serverDefault: { id: string; providerID: string } | null = null;
-  try {
-    const model = await client.defaultModel();
-    if (model?.id && model.providerID)
-      serverDefault = { id: model.id, providerID: model.providerID };
-  } catch {
-    serverDefault = null;
+  const deadline = Date.now() + defaultModelTimeoutMs;
+  for (;;) {
+    try {
+      const model = await client.defaultModel();
+      if (model?.id && model.providerID)
+        serverDefault = { id: model.id, providerID: model.providerID };
+    } catch {
+      serverDefault = null;
+    }
+    if (serverDefault || Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   if (serverDefault) return serverDefault;
   throw new BridgeError(
