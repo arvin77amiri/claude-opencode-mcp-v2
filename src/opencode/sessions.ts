@@ -146,6 +146,7 @@ export function createSessionRecord(input: {
   provider: string | null;
   model: string | null;
   title: string | null;
+  gitBaseline?: AgentSession["gitBaseline"];
 }): AgentSession {
   const now = new Date().toISOString();
   return {
@@ -158,6 +159,7 @@ export function createSessionRecord(input: {
     provider: input.provider,
     model: input.model,
     title: input.title,
+    ...(input.gitBaseline ? { gitBaseline: input.gitBaseline } : {}),
     status: "pending",
     createdAt: now,
     updatedAt: now,

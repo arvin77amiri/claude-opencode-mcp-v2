@@ -9,6 +9,10 @@ original list are done (see CHANGELOG); the rest is pending.
 - `send_message` had no `timeout` argument: a correction round was aborted by `AGENT_TIMEOUT` after 10 minutes. Added.
 - `get_diff` returned an unhelpful `DIFF_UNAVAILABLE` in a directory that is not a git repo. The message now explains it.
 
+- `get_diff` git fallback implemented (baseline stored on the session at creation; also feeds `files_changed`). Another
+  session confirmed that OpenCode's `/diff` is empty even inside a git repo after the agent edits files, so item 3 below
+  was not (only) a non-git problem.
+
 ## Pending
 
 1. **`get_session` shows `running` with no progress.** The session stayed `running` after the agent had written
@@ -19,9 +23,6 @@ original list are done (see CHANGELOG); the rest is pending.
    (and/or warn in the result); changing the behaviour is not planned.
 3. **`files_changed` was always 0.** Not confirmed whether it only happens outside a git repo (the likely cause).
    Test it in a repo created with `git init`.
-4. **README describes a git-diff fallback for `get_diff`** ("a git diff against a baseline captured when the session
-   was created") that the v2 code does not implement: `get_diff` only returns OpenCode's session diff. Either implement
-   the fallback (it would also solve non-git or OpenCode-without-diff cases) or correct the README.
 5. **Coder latency.** `nan/glm5.3-flash` took 6.6 minutes for a first round and over 10 for a combined design + tests
    round. This is the model, not the bridge. Try `nan/deepseek-v4-flash` or `nan/qwen3.8-flash` for `coder`, and tell
    users to split long work into short rounds.

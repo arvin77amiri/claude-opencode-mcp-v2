@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -680,5 +681,36 @@ describe("get_diff", () => {
     ).error;
     expect(error.message).toContain("not a git repository");
     expect(error.details.git_repository).toBe(false);
+  });
+
+  it("falls back to a git diff against the creation baseline when OpenCode reports nothing", async () => {
+    await setupApp({});
+    const workspace = await tempDir("co-gitdiff-");
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+        cwd: workspace,
+      });
+    git("init", "-q");
+    fs.writeFileSync(path.join(workspace, "a.txt"), "one\n");
+    fs.writeFileSync(path.join(workspace, "pre.txt"), "dirty-before\n");
+    git("add", "a.txt");
+    git("commit", "-q", "-m", "base");
+
+    const created = parse(
+      await client.callTool({
+        name: "create_session",
+        arguments: { cwd: workspace, agent: "coder" },
+      }),
+    );
+    fs.writeFileSync(path.join(workspace, "a.txt"), "one\ntwo\n");
+    fs.writeFileSync(path.join(workspace, "b.txt"), "new\n");
+
+    const diff = parse(
+      await client.callTool({ name: "get_diff", arguments: { session_id: created.session_id } }),
+    );
+    expect(diff.source).toBe("git");
+    const names = diff.files.map((entry: { file: string }) => entry.file).sort();
+    expect(names).toEqual(["a.txt", "b.txt"]);
+    expect(diff.diff).toContain("+two");
   });
 });

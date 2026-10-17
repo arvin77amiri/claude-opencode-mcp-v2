@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `send_message` accepts an optional `timeout` (milliseconds), like `delegate_task`.
 
+### Fixed
+- `get_diff` now falls back to a git diff against a baseline captured when the session is created (`source: "git"`), as the README
+  already described; before, it returned `DIFF_UNAVAILABLE` whenever OpenCode's session diff was empty, even in a git repo.
+  `files_changed` uses the same fallback.
+
 ### Changed
 - `get_diff`'s `DIFF_UNAVAILABLE` error now says when the workspace is not a git repository (and reports `details.git_repository`).
 

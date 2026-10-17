@@ -3,6 +3,7 @@ import { createSessionRecord } from "../opencode/sessions.js";
 import type { PreparedRun } from "../opencode/setup.js";
 import { assertSessionLocation } from "../opencode/setup.js";
 import type { AgentSession } from "../types/index.js";
+import { captureGitBaseline } from "../util/git.js";
 import type { AppContext } from "./execute.js";
 
 export function defaultSessionTitle(agent: string, task: string): string {
@@ -36,6 +37,7 @@ export async function createDelegatedSession(
     );
   }
 
+  const gitBaseline = await captureGitBaseline(prepared.workspace.cwd);
   const session = createSessionRecord({
     id: opencodeId,
     cwd: prepared.workspace.cwd,
@@ -48,6 +50,7 @@ export async function createDelegatedSession(
     provider: prepared.model?.providerID ?? null,
     model: prepared.modelString,
     title: title?.trim() ? title.trim() : null,
+    ...(gitBaseline ? { gitBaseline } : {}),
   });
   ctx.registry.upsert(session);
   ctx.logger.info("created delegated session", {

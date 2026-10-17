@@ -7,6 +7,7 @@ import { runPrompt } from "../opencode/run.js";
 import type { SessionRegistry } from "../opencode/sessions.js";
 import type { PreparedRun } from "../opencode/setup.js";
 import type { AgentSession, DelegateResult } from "../types/index.js";
+import { diffSinceBaseline } from "../util/git.js";
 import type { Logger } from "../util/logger.js";
 import { truncate } from "../util/text.js";
 import { createProgressReporter, type ToolExtra } from "./tool-utils.js";
@@ -70,7 +71,7 @@ export async function executeRun(ctx: AppContext, input: ExecuteRunInput): Promi
     });
 
     const truncatedSummary = truncate(result.summary, prepared.config.limits.summaryChars);
-    const filesChanged = await countChangedFiles(prepared.client, session.id);
+    const filesChanged = await countChangedFiles(prepared.client, session);
 
     const status: AgentSession["status"] =
       result.status === "completed"
@@ -132,10 +133,17 @@ export async function executeRun(ctx: AppContext, input: ExecuteRunInput): Promi
 
 export async function countChangedFiles(
   client: OpenCodeClient,
-  sessionId: string,
+  session: AgentSession,
 ): Promise<number> {
   try {
-    return (await client.diff(sessionId)).length;
+    const entries = await client.diff(session.id);
+    if (entries.length > 0) return entries.length;
+  } catch {
+    // fall through to the git baseline
+  }
+  if (!session.gitBaseline) return 0;
+  try {
+    return (await diffSinceBaseline(session.cwd, session.gitBaseline)).files.length;
   } catch {
     return 0;
   }

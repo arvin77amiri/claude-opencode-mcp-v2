@@ -3,7 +3,7 @@ import { z } from "zod";
 import { BridgeError } from "../../errors.js";
 import type { FileDiff } from "../../opencode/api-types.js";
 import type { DiffFileSummary } from "../../types/index.js";
-import { findGitRoot } from "../../util/git.js";
+import { diffSinceBaseline, findGitRoot } from "../../util/git.js";
 import { requestId, truncate } from "../../util/text.js";
 import { type AppContext, assertSession, loadWorkspaceConfig } from "../execute.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
@@ -31,7 +31,7 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
     {
       title: "Inspect changes made in a session",
       description:
-        "Return the file changes made by a delegated session, as reported by OpenCode (GET /api/session/{id}/diff).",
+        "Return the file changes made by a delegated session, as reported by OpenCode, or, when OpenCode reports none, a git diff against the workspace state captured when the session was created.",
       inputSchema: {
         session_id: z
           .string()
@@ -47,22 +47,39 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
         const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
         const config = await loadWorkspaceConfig(ctx, session.cwd);
         const client = ctx.manager.existingClient();
-        if (!client) {
-          throw new BridgeError(
-            "DIFF_UNAVAILABLE",
-            "No OpenCode server is connected, so the session diff cannot be read.",
-            { details: { session_id: session.id, cwd: session.cwd } },
-          );
+
+        let entries: FileDiff[] = [];
+        let opencodeError: string | undefined;
+        if (client) {
+          try {
+            entries = await client.diff(session.id);
+          } catch (error) {
+            opencodeError = error instanceof Error ? error.message : String(error);
+          }
+        } else {
+          opencodeError = "No OpenCode server is connected.";
         }
 
-        let entries: FileDiff[];
-        try {
-          entries = await client.diff(session.id);
-        } catch (error) {
-          if (error instanceof BridgeError) throw error;
+        if (entries.length === 0 && session.gitBaseline) {
+          const git = await diffSinceBaseline(session.cwd, session.gitBaseline, {
+            maxPatchChars: config.limits.diffChars,
+          });
+          if (git.files.length > 0) {
+            return jsonResult({
+              session_id: session.id,
+              cwd: session.cwd,
+              source: "git",
+              files: git.files,
+              diff: git.patch,
+              truncated: git.truncated,
+              ...(git.note ? { note: git.note } : {}),
+            });
+          }
+        }
+        if (entries.length === 0 && opencodeError) {
           throw new BridgeError(
             "DIFF_UNAVAILABLE",
-            `OpenCode could not return the diff: ${error instanceof Error ? error.message : String(error)}`,
+            `OpenCode could not return the diff: ${opencodeError}`,
             { details: { session_id: session.id } },
           );
         }

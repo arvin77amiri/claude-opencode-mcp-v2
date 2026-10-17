@@ -306,9 +306,13 @@ Returns the stored session state plus live OpenCode status
 
 Returns the changes associated with a session:
 
-- OpenCode's own session diff when the server reports one, otherwise
-- a **git diff against a baseline captured when the session was created**, so
-  pre-existing uncommitted work is not attributed to the agent.
+- OpenCode's own session diff when the server reports one (`source: "opencode"`), otherwise
+- a **git diff against a baseline captured when the session was created**
+  (`source: "git"`), so pre-existing uncommitted work is not attributed to the
+  agent. OpenCode does not always report edits made by the agent's tools, so this
+  fallback is what usually answers inside a git repository. The same fallback
+  feeds `files_changed`. Outside a git repository only OpenCode's diff is
+  available.
 
 Returns `{ source, files, diff, truncated, note? }`.
 

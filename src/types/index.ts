@@ -41,6 +41,8 @@ export interface AgentSession {
   lastSummary?: string;
   lastError?: { code: string; message: string };
   durationMs?: number;
+  /** Git state of the workspace when the session was created; basis of the get_diff fallback. */
+  gitBaseline?: import("../util/git.js").GitBaseline;
 }
 
 export interface Finding {
