@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `get_session` reports `opencode.last_activity_at`, `idle_ms` and `last_activity` for live sessions, derived from the newest message and part timestamps.
+
 ### Changed
 - Documented that `delegate_task` without `cwd` uses `CLAUDE_PROJECT_DIR` or the bridge start directory (tool descriptions and README).
 

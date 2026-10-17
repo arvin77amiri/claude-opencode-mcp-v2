@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BridgeError } from "../../errors.js";
+import { latestActivity } from "../../opencode/activity.js";
 import { OpenCodeApiError } from "../../opencode/client.js";
 import { requestId } from "../../util/text.js";
 import { type AppContext, assertSession, loadWorkspaceConfig } from "../execute.js";
@@ -12,7 +13,7 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
     {
       title: "Get delegated session state",
       description:
-        "Return the stored state of a delegated session plus its live OpenCode status when a server is running. Use get_diff to inspect file changes.",
+        "Return the stored state of a delegated session plus its live OpenCode status when a server is running, including the time of the last agent activity (opencode.last_activity_at, idle_ms) so a long-running session can be told apart from a stuck one. Use get_diff to inspect file changes.",
       inputSchema: {
         session_id: z
           .string()
@@ -33,6 +34,8 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
         let liveStatus: string | null = null;
         let serverVersion: string | null = null;
         let live = false;
+        let lastActivityAt: number | null = null;
+        let lastActivity: string | null = null;
 
         if (client) {
           live = true;
@@ -41,6 +44,19 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
             await client.getSession(session.id);
             const active = await client.activeSessions();
             liveStatus = active[session.id]?.type ?? "idle";
+            try {
+              const page = await client.messages(session.id, { limit: 10, order: "desc" });
+              const activity = latestActivity(page.data);
+              if (activity) {
+                lastActivityAt = activity.at;
+                lastActivity = activity.summary;
+              }
+            } catch (error) {
+              ctx.logger.debug("could not fetch session activity", {
+                session_id: session.id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
           } catch (error) {
             if (error instanceof OpenCodeApiError && error.status === 404) {
               throw new BridgeError(
@@ -77,7 +93,18 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
           ...(session.durationMs !== undefined ? { duration_ms: session.durationMs } : {}),
           ...(session.lastMessageID ? { last_message_id: session.lastMessageID } : {}),
           opencode: live
-            ? { live: true, status: liveStatus, server_version: serverVersion }
+            ? {
+                live: true,
+                status: liveStatus,
+                server_version: serverVersion,
+                ...(lastActivityAt !== null
+                  ? {
+                      last_activity_at: new Date(lastActivityAt).toISOString(),
+                      idle_ms: Math.max(0, Date.now() - lastActivityAt),
+                      last_activity: lastActivity,
+                    }
+                  : {}),
+              }
             : { live: false, status: null, server_version: null },
         });
       } catch (error) {

@@ -585,6 +585,8 @@ describe("sessions", () => {
     );
     expect(session.status).toBe("completed");
     expect(session.last_summary).toContain("FAKE DONE");
+    expect(session.opencode.last_activity_at).toEqual(expect.any(String));
+    expect(session.opencode.idle_ms).toBeGreaterThanOrEqual(0);
 
     const aborted = parse(
       await client.callTool({

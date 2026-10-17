@@ -16,13 +16,12 @@ original list are done (see CHANGELOG and "Done" below); the rest is pending.
 - Default `cwd` documented in the tool descriptions and README (behaviour unchanged).
 
 - `files_changed` in a git repo verified: the real-OpenCode E2E (12 tests, git repo) asserts `files_changed >= 1`. Passes.
+- `get_session` now reports `opencode.last_activity_at`, `idle_ms` and `last_activity` (from the newest message/part
+  timestamps of the live session), so a long run can be told apart from a stuck one.
 
 ## Pending
 
-1. **`get_session` shows `running` with no progress.** The session stayed `running` after the agent had written
-   its files, and nothing indicates activity. Investigate what OpenCode exposes (messages, last part, timestamps)
-   to report at least the last activity time. Viability not checked yet.
-2. **Coder latency.** `nan/glm5.3-flash` took 6.6 minutes for a first round and over 10 for a combined design + tests
+1. **Coder latency.** `nan/glm5.3-flash` took 6.6 minutes for a first round and over 10 for a combined design + tests
    round. This is the model, not the bridge. Try `nan/deepseek-v4-flash` or `nan/qwen3.8-flash` for `coder`, and tell
    users to split long work into short rounds.
 
