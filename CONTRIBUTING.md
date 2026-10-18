@@ -18,7 +18,7 @@ npm run lint && npm run typecheck && npm test && npm run build
 - Keep the bridge thin: call OpenCode instead of reimplementing its runtime.
 - Never introduce `ask` permission rules — the bridge is headless.
 - Never write into a user's repository outside `.claude-opencode/`.
-- Keep the provider configurable; DeepSeek is only a default.
+- Keep the provider configurable; never assume a specific provider or model.
 - Add or update tests and documentation for behavior changes.
 - Run the gate above and, for integration changes, the real E2E suite:
 

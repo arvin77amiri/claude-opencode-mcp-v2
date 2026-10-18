@@ -1,0 +1,14 @@
+{
+  "name": "claude-opencode-mcp-v2",
+  "description": "Claude Code plugin that delegates work to OpenCode 2.x agents through an MCP bridge.",
+  "owner": {
+    "name": "javi01"
+  },
+  "plugins": [
+    {
+      "name": "opencode-bridge",
+      "source": "./",
+      "description": "OpenCode 2.x delegation MCP server plus the opencode-delegation orchestration skill."
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 # DeepSeek setup
 
-DeepSeek is the default provider, but the bridge is provider-agnostic: the
-provider is just `defaults.provider` in the configuration. Anything OpenCode
-can run works — DeepSeek is only the initial default.
+The bridge is provider-agnostic and assumes no provider: with no configuration,
+agents use your OpenCode default model. This page is one example of setting up
+a specific provider, DeepSeek; anything OpenCode can run works the same way.
 
 ## Authenticate with OpenCode
 

@@ -1,0 +1,19 @@
+{
+  "name": "opencode-bridge",
+  "version": "2.0.0-alpha.3",
+  "description": "Delegate software-engineering tasks to OpenCode 2.x agents (researcher, coder, reviewer, tester) from Claude Code. Bundles the claude-opencode-mcp-v2 MCP server and a skill that teaches Claude how to orchestrate it.",
+  "author": {
+    "name": "javi01"
+  },
+  "homepage": "https://github.com/choruzo/claude-opencode-mcp-v2#readme",
+  "repository": "https://github.com/choruzo/claude-opencode-mcp-v2",
+  "license": "MIT",
+  "keywords": ["mcp", "opencode", "delegation", "multi-agent", "coding-agent"],
+  "mcpServers": {
+    "opencode": {
+      "command": "npx",
+      "args": ["-y", "claude-opencode-mcp-v2@alpha"],
+      "timeout": 600000
+    }
+  }
+}

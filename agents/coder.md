@@ -1,5 +1,5 @@
 ---
-description: DeepSeek coding agent for implementation, code modification, refactoring, test execution and fixing implementation issues.
+description: Coding agent for implementation, code modification, refactoring, test execution and fixing implementation issues.
 mode: all
 temperature: 0.1
 ---

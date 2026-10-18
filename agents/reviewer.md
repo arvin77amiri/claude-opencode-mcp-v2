@@ -1,5 +1,5 @@
 ---
-description: Read-only DeepSeek agent for code review, bug detection, regression analysis, security review and architecture review.
+description: Read-only agent for code review, bug detection, regression analysis, security review and architecture review.
 mode: all
 temperature: 0.1
 ---

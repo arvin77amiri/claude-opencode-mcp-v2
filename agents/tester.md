@@ -1,5 +1,5 @@
 ---
-description: DeepSeek testing agent that runs test suites, inspects failures, identifies root causes and suggests fixes without editing code.
+description: Testing agent that runs test suites, inspects failures, identifies root causes and suggests fixes without editing code.
 mode: all
 temperature: 0.1
 ---

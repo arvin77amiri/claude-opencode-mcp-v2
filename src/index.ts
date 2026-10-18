@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   program
     .name("claude-opencode-mcp")
     .description(
-      "MCP bridge that lets Claude Code delegate tasks to OpenCode agents (DeepSeek by default) in the same workspace.",
+      "MCP bridge that lets Claude Code delegate tasks to OpenCode agents (on the configured model or your OpenCode default) in the same workspace.",
     )
     .version(SERVER_VERSION, "-v, --version", "print the bridge version")
     .action(async () => {

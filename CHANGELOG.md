@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The repository is now a Claude Code plugin (`opencode-bridge`) and a single-plugin marketplace (`.claude-plugin/`). The plugin bundles the MCP server and the `opencode-delegation` skill.
+- `opencode-delegation` skill (`skills/`): when to delegate, self-contained briefs with per-agent templates, the coder → reviewer + tester workflow, parallelism rules for a shared working tree, timeout and stuck-session handling, and what to do for each error code.
+
+### Changed
+- The tool, CLI and agent descriptions no longer say the agents use DeepSeek by default; they use the configured model or the user's OpenCode default.
+- The server instructions now include the rules that matter most when no skill is loaded: always pass `cwd`, don't run two editing agents in the same workspace at once, and verify a coder's work with `get_diff` and an independent reviewer or tester.
+
 ## [2.0.0-alpha.3] - 2026-10-18
 
 ### Added

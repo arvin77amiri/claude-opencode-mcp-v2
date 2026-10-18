@@ -26,13 +26,13 @@ job.
 └───────────────┬────────────────────────────────────────────────────┘
                 │ @opencode-ai/sdk (v1 HTTP API) + OPENCODE_CONFIG_CONTENT
 ┌───────────────▼────────────────────────────────────────────────────┐
-│ OpenCode server (one per workspace directory)                      │
+│ OpenCode server (one, shared by every workspace)                   │
 │  · tools: read, glob, grep, edit, write, apply_patch, bash, …      │
 │  · sessions, permissions, LSP, providers                           │
 └───────────────┬────────────────────────────────────────────────────┘
-                │ provider API (DeepSeek by default)
+                │ provider API (configured model or OpenCode default)
                 ▼
-        DeepSeek / any configured provider
+        any provider configured in OpenCode
                 │
                 ▼
         the same project/worktree

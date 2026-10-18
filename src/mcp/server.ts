@@ -33,7 +33,9 @@ export const SERVER_INSTRUCTIONS = [
   "Claude Code is the orchestrator; this server delegates focused tasks to OpenCode agents that run in the same workspace.",
   "Use delegate_task for one-shot work, or create_session + send_message for multi-step work that must keep context.",
   "Read-only agents: researcher, reviewer. Editing agent: coder. Test-running agent: tester.",
-  "After a coder session, call get_diff to inspect exactly what changed before reporting back to the user.",
+  "Agents do not see this conversation, so every task must be a self-contained brief. Always pass cwd (the absolute project root).",
+  "After a coder session, call get_diff to inspect exactly what changed, and have reviewer and/or tester check it before reporting back; do not rely on the coder's own summary.",
+  "Agents share your working tree: never run two editing sessions on the same cwd at once, and do not edit files yourself while a coder runs.",
   "Paths supplied to delegate_task are exploration hints, not boundaries.",
 ].join(" ");
 

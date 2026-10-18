@@ -11,7 +11,9 @@ import { createDelegatedSession, defaultSessionTitle } from "../session-utils.js
 import { errorResult, jsonResult, type ToolExtra } from "../tool-utils.js";
 
 export const DELEGATE_TASK_DESCRIPTION = [
-  "Delegate a software-engineering task to an OpenCode agent (DeepSeek by default) that runs in the same workspace.",
+  "Delegate a software-engineering task to an OpenCode agent that runs in the same workspace,",
+  "on the model configured for that agent or, if none is configured, the user's OpenCode default.",
+  "The agent does not see this conversation: write the task as a self-contained brief (goal, context, scope, done criterion, test command).",
   "The agent explores the repository itself and returns a concise summary plus structured findings.",
   "Every agent can be granted or denied edits and shell access per call with allow_edits / allow_bash;",
   "grants still enforce the bridge security policy (sensitive-file protection for edits, no git history changes for shell).",

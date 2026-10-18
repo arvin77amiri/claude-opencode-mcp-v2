@@ -4,8 +4,8 @@
 
 - Node.js 20 or newer
 - Claude Code (2.x)
-- OpenCode 1.18 or newer
-- A model provider authenticated in OpenCode (DeepSeek by default)
+- OpenCode 2.x (1.x is not supported)
+- A model provider authenticated in OpenCode (any; none is assumed)
 
 ## Install the bridge
 

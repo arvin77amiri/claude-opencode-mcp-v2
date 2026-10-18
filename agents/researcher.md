@@ -1,5 +1,5 @@
 ---
-description: Read-only DeepSeek agent for architecture analysis, repository exploration, dependency investigation and implementation recommendations.
+description: Read-only agent for architecture analysis, repository exploration, dependency investigation and implementation recommendations.
 mode: all
 temperature: 0.1
 ---

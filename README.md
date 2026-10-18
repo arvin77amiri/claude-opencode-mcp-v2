@@ -110,7 +110,33 @@ npm install -g .
 
 ## Claude Code setup
 
-### Option A — project `.mcp.json` (recommended)
+### Option A — Claude Code plugin (recommended)
+
+The repository is also a Claude Code plugin marketplace. The `opencode-bridge`
+plugin bundles the MCP server and the **`opencode-delegation` skill**, which
+teaches Claude when to delegate, how to write self-contained briefs, the
+coder → reviewer + tester workflow, safe parallelism and how to handle each
+error code.
+
+```text
+/plugin install opencode-bridge --marketplace choruzo/claude-opencode-mcp-v2
+```
+
+On older Claude Code versions, add the marketplace first:
+
+```text
+/plugin marketplace add choruzo/claude-opencode-mcp-v2
+/plugin install opencode-bridge@claude-opencode-mcp-v2
+```
+
+The plugin runs the server with `npx -y claude-opencode-mcp-v2@alpha` and a
+10-minute tool timeout. Its tools appear as
+`mcp__plugin_opencode-bridge_opencode__*`. Don't also register the server
+through `.mcp.json`, or Claude will see two copies of every tool.
+
+To try a local checkout: `claude --plugin-dir /path/to/claude-opencode-mcp-v2`.
+
+### Option B — project `.mcp.json` (MCP server only, no skill)
 
 Create `.mcp.json` in your project root:
 
@@ -132,7 +158,7 @@ runs are long; without it Claude Code falls back to `MCP_TOOL_TIMEOUT`.
 Claude Code also moves main-conversation tool calls to a background task after
 two minutes, which is fine — the result arrives when the run finishes.
 
-### Option B — `claude mcp add`
+### Option C — `claude mcp add`
 
 ```bash
 claude mcp add opencode --scope project -- npx -y claude-opencode-mcp-v2@alpha
