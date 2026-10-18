@@ -1,7 +1,12 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { BUILTIN_AGENT_NAMES, VARIANT_SEPARATOR } from "../../src/opencode/agents.js";
-import type { FileDiff, ModelRef, PermissionRuleset } from "../../src/opencode/api-types.js";
+import type {
+  FileDiff,
+  ModelRef,
+  PermissionRuleset,
+  TokenUsage,
+} from "../../src/opencode/api-types.js";
 
 export interface FakeAgent {
   name: string;
@@ -25,6 +30,8 @@ export interface FakePromptResponse {
   error?: { name: string; data: Record<string, unknown> };
   /** Emit a completed tool-call step before the final message (real OpenCode behavior). */
   toolStep?: boolean;
+  /** Cost and tokens reported on each assistant message of the run. */
+  usage?: { cost: number; tokens: TokenUsage };
   /** Do not emit SSE events (forces the bridge onto its polling fallback). */
   silent?: boolean;
   onBeforeRespond?: () => Promise<void> | void;
@@ -192,6 +199,7 @@ export class FakeOpenCode {
           },
         ],
         finish: "tool-calls",
+        ...(response.usage ?? {}),
       });
       emit("session.tool.called", { name: "read" });
       await this.interruptibleDelay(session, 100);
@@ -210,6 +218,7 @@ export class FakeOpenCode {
         content: response.text ? [{ type: "text", text: response.text }] : [],
         finish: failed ? "error" : "stop",
         ...(failed ? { error: response.error } : {}),
+        ...(response.usage ?? {}),
       });
     }
     const outcome = interrupted ? "interrupted" : failed ? "failed" : "succeeded";

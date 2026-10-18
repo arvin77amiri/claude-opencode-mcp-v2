@@ -41,6 +41,8 @@ export interface AgentSession {
   lastSummary?: string;
   lastError?: { code: string; message: string };
   durationMs?: number;
+  /** Cost and tokens added up over every run of the session. */
+  usage?: RunUsage;
   /** Git state of the workspace when the session was created; basis of the get_diff fallback. */
   gitBaseline?: import("../util/git.js").GitBaseline;
 }
@@ -61,10 +63,25 @@ export interface DelegateResult {
   model: string | null;
   summary: string;
   findings: Finding[];
+  /** Total number of files changed in the session's workspace. */
   files_changed: number;
+  /** The changed files (the first MAX_CHANGED_FILES of them). */
+  changed_files: DiffFileSummary[];
   duration_ms: number;
   truncated: boolean;
+  /** Cost and tokens of this run, when OpenCode reports them. */
+  usage?: RunUsage;
   error?: { code: string; message: string; details?: Record<string, unknown> };
+}
+
+/** Cost (USD, as reported by OpenCode) and token counts of one or more runs. */
+export interface RunUsage {
+  cost: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
 }
 
 export interface AgentInfo {
@@ -109,6 +126,7 @@ export interface RunResult {
   durationMs: number;
   messageID?: string;
   truncated: boolean;
+  usage?: RunUsage;
 }
 
 export interface DiffFileSummary {

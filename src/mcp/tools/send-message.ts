@@ -14,7 +14,7 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
     {
       title: "Send a follow-up message to a session",
       description:
-        "Continue an existing delegated session with another message. The agent keeps its previous context and its permission level; allow_edits / allow_bash can change that level for this and later messages.",
+        "Continue an existing delegated session with another message. The agent keeps its previous context and its permission level; allow_edits / allow_bash can change that level for this and later messages. Returns the same result as delegate_task; an editing run fails with WORKSPACE_BUSY while another one is in progress on an overlapping cwd.",
       inputSchema: {
         session_id: z
           .string()

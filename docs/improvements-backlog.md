@@ -9,7 +9,7 @@ The items are ordered roughly by value for the orchestrator relative to effort.
 
 ## 1. Richer run results
 
-### 1.1 `files_changed` as a list of paths
+### 1.1 `files_changed` as a list of paths — done
 - **Why:** today it is a number. Claude has to call `get_diff` just to know *which* files changed,
   even when deciding whether a review is needed.
 - **How:** `countChangedFiles` (`src/mcp/execute.ts`) already has the entries (OpenCode diff or
@@ -26,7 +26,7 @@ The items are ordered roughly by value for the orchestrator relative to effort.
   them as `verification` / `changes` in the result. Do the same for the tester's `## Test Results`.
 - **Effort:** small to medium (parsing plus tests on real samples in `research/smoke/`).
 
-### 1.3 Tokens and cost per run
+### 1.3 Tokens and cost per run — done
 - **Why:** lets Claude pick models and avoid delegating trivial work. `api-types.ts` already has
   `cost` on assistant messages.
 - **How:** add up `cost` and tokens over the run's assistant messages in `runPrompt` and return
@@ -45,7 +45,7 @@ The items are ordered roughly by value for the orchestrator relative to effort.
   Keep the result in memory/registry until it is read.
 - **Effort:** medium (lifecycle, cancellation on shutdown, tests).
 
-### 2.2 Concurrent-editor guard
+### 2.2 Concurrent-editor guard — done
 - **Why:** two sessions with edits on the same `cwd` overwrite each other, and the git-baseline diff then
   blames one for the other's changes. Today only the skill warns about it.
 - **How:** in `executeRun`, keep a map `cwd → running session with canEdit`. If another editing run

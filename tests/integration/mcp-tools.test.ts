@@ -520,6 +520,130 @@ describe("delegate_task", () => {
     expect(fake.legacyCalls).toBe(0);
   });
 
+  it("refuses a second editing run on the same workspace with WORKSPACE_BUSY", async () => {
+    await setupApp({
+      fakeOptions: { onPrompt: () => ({ text: "done", delayMs: 800 }) },
+    });
+    const workspace = await tempDir();
+    const first = client.callTool({
+      name: "delegate_task",
+      arguments: { cwd: workspace, agent: "coder", task: "edit one" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const [busy, reader] = await Promise.all([
+      client.callTool({
+        name: "delegate_task",
+        arguments: { cwd: workspace, agent: "coder", task: "edit two" },
+      }),
+      client.callTool({
+        name: "delegate_task",
+        arguments: { cwd: workspace, agent: "reviewer", task: "read along" },
+      }),
+    ]);
+    expect(busy.isError).toBe(true);
+    const error = parse(busy).error;
+    expect(error.code).toBe("WORKSPACE_BUSY");
+    expect(error.retryable).toBe(true);
+    expect(parse(reader).status).toBe("completed");
+    const firstResult = parse(await first);
+    expect(firstResult.status).toBe("completed");
+    expect(error.details.busy_session_id).toBe(firstResult.session_id);
+    // The refused run never reached OpenCode.
+    expect(fake.prompts.some((prompt) => prompt.text.includes("edit two"))).toBe(false);
+
+    // The workspace is free again once the first run ends.
+    const again = parse(
+      await client.callTool({
+        name: "delegate_task",
+        arguments: { cwd: workspace, agent: "coder", task: "edit three" },
+      }),
+    );
+    expect(again.status).toBe("completed");
+  });
+
+  it("guards send_message editing runs too", async () => {
+    await setupApp({
+      fakeOptions: { onPrompt: () => ({ text: "done", delayMs: 800 }) },
+    });
+    const workspace = await tempDir();
+    const created = parse(
+      await client.callTool({
+        name: "create_session",
+        arguments: { cwd: workspace, agent: "coder" },
+      }),
+    );
+    const running = client.callTool({
+      name: "delegate_task",
+      arguments: { cwd: workspace, agent: "coder", task: "edit one" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const busy = await client.callTool({
+      name: "send_message",
+      arguments: { session_id: created.session_id, message: "edit two" },
+    });
+    expect(parse(busy).error.code).toBe("WORKSPACE_BUSY");
+    expect(parse(await running).status).toBe("completed");
+  });
+
+  it("reports the cost and tokens of a run and accumulates them on the session", async () => {
+    await setupApp({
+      fakeOptions: {
+        onPrompt: () => ({
+          text: "done",
+          toolStep: true,
+          usage: {
+            cost: 0.25,
+            tokens: { input: 1000, output: 100, reasoning: 10, cache: { read: 500, write: 0 } },
+          },
+        }),
+      },
+    });
+    const workspace = await tempDir();
+    const result = parse(
+      await client.callTool({
+        name: "delegate_task",
+        arguments: { cwd: workspace, agent: "researcher", task: "map it" },
+      }),
+    );
+    // Two assistant messages: the tool step and the final answer.
+    expect(result.usage).toEqual({
+      cost: 0.5,
+      input_tokens: 2000,
+      output_tokens: 200,
+      reasoning_tokens: 20,
+      cache_read_tokens: 1000,
+      cache_write_tokens: 0,
+    });
+
+    const followUp = parse(
+      await client.callTool({
+        name: "send_message",
+        arguments: { session_id: result.session_id, message: "more" },
+      }),
+    );
+    // Only this run's messages, not the earlier ones.
+    expect(followUp.usage.input_tokens).toBe(2000);
+
+    const session = parse(
+      await client.callTool({ name: "get_session", arguments: { session_id: result.session_id } }),
+    );
+    expect(session.usage.input_tokens).toBe(4000);
+    expect(session.usage.cost).toBe(1);
+  });
+
+  it("omits usage when OpenCode reports none", async () => {
+    await setupApp({});
+    const workspace = await tempDir();
+    const result = parse(
+      await client.callTool({
+        name: "delegate_task",
+        arguments: { cwd: workspace, task: "x" },
+      }),
+    );
+    expect(result.usage).toBeUndefined();
+    expect(result.changed_files).toEqual([]);
+  });
+
   it("rejects oversized inputs instead of forwarding them", async () => {
     await setupApp({});
     const workspace = await tempDir();
@@ -639,6 +763,10 @@ describe("get_diff", () => {
     );
     expect(delegated.status).toBe("completed");
     expect(delegated.files_changed).toBe(2);
+    expect(delegated.changed_files).toEqual([
+      { file: "app.ts", additions: 1, deletions: 1, status: "modified" },
+      { file: "new-file.ts", additions: 1, deletions: 0, status: "added" },
+    ]);
 
     const diff = parse(
       await client.callTool({ name: "get_diff", arguments: { session_id: delegated.session_id } }),

@@ -123,7 +123,16 @@ export interface AssistantMessage {
   finish?: string;
   error?: unknown;
   cost?: number;
+  tokens?: TokenUsage;
   time: { created: number; streamed?: number; completed?: number };
+}
+
+/** `TokenUsage.Info`: token counts of one assistant message. */
+export interface TokenUsage {
+  input?: number;
+  output?: number;
+  reasoning?: number;
+  cache?: { read?: number; write?: number };
 }
 
 export interface IdleMessage {

@@ -1,6 +1,6 @@
 import type { ResolvedConfig } from "../config/config.js";
 import { BridgeError } from "../errors.js";
-import type { RunProgress, RunResult } from "../types/index.js";
+import type { RunProgress, RunResult, RunUsage } from "../types/index.js";
 import type { Logger } from "../util/logger.js";
 import { extractFindings, stripAnsi } from "../util/text.js";
 import type {
@@ -137,6 +137,83 @@ export function assistantText(message: { content?: Array<{ type: string }> } | u
     .map((part) => part.text)
     .join("\n\n")
     .trim();
+}
+
+function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/** Add up cost and tokens of assistant messages; undefined when none reports any. */
+export function sumUsage(messages: AssistantMessage[]): RunUsage | undefined {
+  const reporting = messages.filter(
+    (message) => typeof message.cost === "number" || message.tokens !== undefined,
+  );
+  if (reporting.length === 0) return undefined;
+  const usage: RunUsage = {
+    cost: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    reasoning_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+  };
+  for (const message of reporting) {
+    usage.cost += count(message.cost);
+    usage.input_tokens += count(message.tokens?.input);
+    usage.output_tokens += count(message.tokens?.output);
+    usage.reasoning_tokens += count(message.tokens?.reasoning);
+    usage.cache_read_tokens += count(message.tokens?.cache?.read);
+    usage.cache_write_tokens += count(message.tokens?.cache?.write);
+  }
+  return usage;
+}
+
+export function addUsage(a: RunUsage | undefined, b: RunUsage | undefined): RunUsage | undefined {
+  if (!a || !b) return a ?? b;
+  return {
+    cost: a.cost + b.cost,
+    input_tokens: a.input_tokens + b.input_tokens,
+    output_tokens: a.output_tokens + b.output_tokens,
+    reasoning_tokens: a.reasoning_tokens + b.reasoning_tokens,
+    cache_read_tokens: a.cache_read_tokens + b.cache_read_tokens,
+    cache_write_tokens: a.cache_write_tokens + b.cache_write_tokens,
+  };
+}
+
+const USAGE_PAGE_SIZE = 100;
+const USAGE_MAX_PAGES = 20;
+
+/**
+ * Usage of every assistant message after `baselineId`. A long run has more
+ * steps than the window `finalize` reads, so this pages through the
+ * assistant messages, newest first, until it reaches the baseline.
+ */
+async function runUsage(
+  client: OpenCodeClient,
+  sessionId: string,
+  baselineId: string | null,
+): Promise<RunUsage | undefined> {
+  const seen = new Map<string, AssistantMessage>();
+  let cursor: string | undefined;
+  for (let page = 0; page < USAGE_MAX_PAGES; page += 1) {
+    const result = await client.messages(
+      sessionId,
+      cursor
+        ? { cursor, type: "assistant", limit: USAGE_PAGE_SIZE }
+        : { order: "desc", type: "assistant", limit: USAGE_PAGE_SIZE },
+    );
+    let reachedBaseline = false;
+    for (const message of result.data) {
+      if (baselineId && message.id <= baselineId) {
+        reachedBaseline = true;
+        continue;
+      }
+      if (isAssistant(message)) seen.set(message.id, message);
+    }
+    cursor = result.cursor?.next;
+    if (reachedBaseline || !cursor || result.data.length < USAGE_PAGE_SIZE) break;
+  }
+  return sumUsage([...seen.values()]);
 }
 
 interface RunErrorInfo {
@@ -472,6 +549,25 @@ export async function runPrompt(input: RunPromptInput): Promise<RunResult> {
     );
   }
 
+  const result = await settledResult(input, outcome, baselineId, durationMs, emit);
+  let usage: RunUsage | undefined;
+  try {
+    usage = await runUsage(client, sessionId, baselineId);
+  } catch (error) {
+    input.logger.debug("could not read run usage", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return usage ? { ...result, usage } : result;
+}
+
+async function settledResult(
+  input: RunPromptInput,
+  outcome: Extract<RunOutcome, { kind: "done" | "timeout" | "not-accepted" }>,
+  baselineId: string | null,
+  durationMs: number,
+  emit: (progress: RunProgress) => Promise<void>,
+): Promise<RunResult> {
   if (outcome.kind === "timeout") {
     await emit({ progress: 95, message: "timed out; interrupting session" });
     return {
@@ -493,7 +589,7 @@ export async function runPrompt(input: RunPromptInput): Promise<RunResult> {
       {
         code: "AGENT_EXECUTION_FAILED",
         message: `OpenCode did not start the delegated run within ${ACCEPTANCE_GRACE_MS}ms.`,
-        details: { session_id: sessionId },
+        details: { session_id: input.sessionId },
       },
       durationMs,
     );

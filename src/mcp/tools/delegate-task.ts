@@ -19,7 +19,8 @@ export const DELEGATE_TASK_DESCRIPTION = [
   "grants still enforce the bridge security policy (sensitive-file protection for edits, no git history changes for shell).",
   "Pass cwd explicitly: without it the workspace is CLAUDE_PROJECT_DIR or the directory the bridge was started in,",
   "which may be a parent of your project (the agent, including tester, then runs from there). The resolved cwd is returned.",
-  "Returns { status, session_id, cwd, summary, findings, files_changed }.",
+  "Only one editing run at a time per workspace: an editing run on a cwd that overlaps one in progress fails with WORKSPACE_BUSY.",
+  "Returns { status, session_id, cwd, summary, findings, files_changed (count), changed_files [{ file, status, additions, deletions }], usage { cost, tokens } }.",
 ].join(" ");
 
 export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
@@ -102,6 +103,8 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
           ...(args.allow_edits !== undefined ? { allowEdits: args.allow_edits } : {}),
           ...(args.allow_bash !== undefined ? { allowBash: args.allow_bash } : {}),
         });
+        // Fail before creating an OpenCode session that could never run.
+        if (prepared.capabilities.canEdit) ctx.editorLocks.assertFree(prepared.workspace.cwd);
         const hints = resolveWorkspaceHints(prepared.workspace.cwd, args.paths);
         const session = await createDelegatedSession(
           ctx,

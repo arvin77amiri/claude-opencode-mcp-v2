@@ -20,6 +20,7 @@ CLAUDE_OPENCODE_LOG=debug claude
 | `WORKSPACE_NOT_ALLOWED` | Canonical workspace is outside `workspace.allowedRoots`. | Add the root or clear the list. |
 | `WORKSPACE_NOT_READABLE` | Permission problem accessing the workspace. | Fix directory permissions. |
 | `WORKSPACE_MISMATCH` | OpenCode reported a different directory than requested. | Restart Claude Code; report a bug if it persists. |
+| `WORKSPACE_BUSY` | Another editing run of this bridge is in progress on the same directory, a parent or a child. | Wait for it (`get_session`), abort it, or run read-only (`allow_edits: false`). |
 | `INVALID_PATH` | A path hint escaped the workspace, a path had a null byte, or `cwd` was not a directory. | Fix the hint. |
 | `OPENCODE_NOT_AVAILABLE` | Executable not found or not executable. | `npm install -g opencode-ai` or set `OPENCODE_BIN`/`opencode.binary`. |
 | `OPENCODE_START_TIMEOUT` | Server did not print its listening URL in time. | Run `opencode serve` manually; raise `opencode.startupTimeout`; check auth env vars. |

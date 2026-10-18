@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Run results (`delegate_task`, `send_message`) include `changed_files`: the changed files as `{ file, status, additions, deletions }` (first 100), from the same source as `files_changed`, which stays the count.
+- Run results include `usage` (`cost`, `input_tokens`, `output_tokens`, `reasoning_tokens`, `cache_read_tokens`, `cache_write_tokens`), added up over the run's assistant messages; `get_session` reports the total over all runs of the session.
+- A second editing run on a workspace that overlaps one in progress (same directory, parent or child) fails with the new `WORKSPACE_BUSY` error code (retryable) instead of overwriting it. Read-only runs are not affected; the guard is per bridge process.
 - The repository is now a Claude Code plugin (`opencode-bridge`) and a single-plugin marketplace (`.claude-plugin/`). The plugin bundles the MCP server and the `opencode-delegation` skill.
 - `opencode-delegation` skill (`skills/`): when to delegate, self-contained briefs with per-agent templates, the coder → reviewer + tester workflow, parallelism rules for a shared working tree, timeout and stuck-session handling, and what to do for each error code.
 

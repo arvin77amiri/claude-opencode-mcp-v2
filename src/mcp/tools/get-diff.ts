@@ -2,23 +2,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BridgeError } from "../../errors.js";
 import type { FileDiff } from "../../opencode/api-types.js";
-import type { DiffFileSummary } from "../../types/index.js";
 import { diffSinceBaseline, findGitRoot, lateGitBaseline } from "../../util/git.js";
 import { requestId, truncate } from "../../util/text.js";
-import { type AppContext, assertSession, loadWorkspaceConfig } from "../execute.js";
+import {
+  type AppContext,
+  assertSession,
+  loadWorkspaceConfig,
+  summarizeDiffEntry,
+} from "../execute.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
-
-function normalizeStatus(status: string | undefined): DiffFileSummary["status"] {
-  switch (status) {
-    case "added":
-    case "deleted":
-    case "renamed":
-    case "modified":
-      return status;
-    default:
-      return status ? "unknown" : "modified";
-  }
-}
 
 function renderPatch(entry: FileDiff): string {
   if (entry.patch?.trim()) return entry.patch.endsWith("\n") ? entry.patch : `${entry.patch}\n`;
@@ -105,12 +97,7 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
           );
         }
 
-        const files: DiffFileSummary[] = entries.map((entry) => ({
-          file: entry.file,
-          additions: entry.additions,
-          deletions: entry.deletions,
-          status: normalizeStatus(entry.status),
-        }));
+        const files = entries.map(summarizeDiffEntry);
         const truncated = truncate(entries.map(renderPatch).join("\n"), config.limits.diffChars);
         return jsonResult({
           session_id: session.id,

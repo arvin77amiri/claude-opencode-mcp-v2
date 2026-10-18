@@ -293,7 +293,17 @@ Run one task in a fresh session and wait for the agent's answer.
 ```
 
 Returns `{ status, session_id, agent, cwd, model, summary, findings,
-files_changed, duration_ms, truncated, error? }`.
+files_changed, changed_files, duration_ms, truncated, usage?, error? }`.
+
+- `files_changed` is the number of changed files; `changed_files` lists them as
+  `{ file, status, additions, deletions }` (first 100). Use `get_diff` for the patch.
+- `usage` is `{ cost, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens,
+  cache_write_tokens }` added up over the run's assistant messages, as OpenCode reports them
+  (`cost` in USD; 0 for free models). It is omitted when OpenCode reports no usage.
+- Only one editing run (`coder`, or any agent with `allow_edits: true`) at a time per workspace:
+  another editing run whose `cwd` is the same directory, a parent or a child fails with
+  `WORKSPACE_BUSY` (retryable) instead of overwriting it. Read-only runs are not affected. The
+  guard is per bridge process, so it does not see a second Claude Code session.
 
 - `paths` are exploration hints, not a boundary — the agent may inspect the
   whole workspace.
@@ -322,11 +332,13 @@ Continue a session; the agent keeps its context and permission level.
 
 `allow_edits` / `allow_bash` may change the level from this message onward.
 `timeout` (milliseconds, optional) overrides the bridge's execution timeout for this message.
+Returns the same result as `delegate_task`, with `usage` for this message only.
 
 ### `get_session`
 
 Returns the stored session state plus live OpenCode status
-(`opencode.status` is `idle`, `busy` or `retry` when a server is running).
+(`opencode.status` is `idle`, `busy` or `retry` when a server is running), and
+`usage` added up over every run of the session.
 
 ### `get_diff`
 
@@ -337,7 +349,7 @@ Returns the changes associated with a session:
   (`source: "git"`), so pre-existing uncommitted work is not attributed to the
   agent. OpenCode does not always report edits made by the agent's tools, so this
   fallback is what usually answers inside a git repository. The same fallback
-  feeds `files_changed`. Outside a git repository only OpenCode's diff is
+  feeds `files_changed` and `changed_files`. Outside a git repository only OpenCode's diff is
   available.
 
 Returns `{ source, files, diff, truncated, note? }`.

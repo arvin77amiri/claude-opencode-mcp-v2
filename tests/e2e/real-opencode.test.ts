@@ -168,7 +168,7 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode 2.x", () => {
           },
         }),
       );
-      expect(a.status).toBe("completed");
+      expect(a.status, JSON.stringify(a.error)).toBe("completed");
       expect(a.summary).toContain("alpha-42");
       expect(a.summary).not.toContain("beta-99");
 
@@ -182,7 +182,7 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode 2.x", () => {
           },
         }),
       );
-      expect(b.status).toBe("completed");
+      expect(b.status, JSON.stringify(b.error)).toBe("completed");
       expect(b.summary).toContain("beta-99");
       expect(b.summary).not.toContain("alpha-42");
     },
@@ -236,9 +236,15 @@ describe.skipIf(!ENABLED)("E2E with real OpenCode 2.x", () => {
       const diff = parse(
         await client.callTool({ name: "get_diff", arguments: { session_id: result.session_id } }),
       );
-      expect(diff.source).toBe("opencode");
+      // OpenCode does not always report tool edits; the git-baseline fallback then answers.
+      expect(["opencode", "git"]).toContain(diff.source);
       expect(diff.files.map((f: { file: string }) => f.file)).toContain("coder-created.txt");
       expect(result.files_changed).toBeGreaterThanOrEqual(1);
+      expect(result.changed_files.map((f: { file: string }) => f.file)).toContain(
+        "coder-created.txt",
+      );
+      expect(result.usage.input_tokens).toBeGreaterThan(0);
+      expect(result.usage.output_tokens).toBeGreaterThan(0);
     },
     TIMEOUT,
   );

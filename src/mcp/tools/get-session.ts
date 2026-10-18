@@ -13,7 +13,7 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
     {
       title: "Get delegated session state",
       description:
-        "Return the stored state of a delegated session plus its live OpenCode status when a server is running, including the time of the last agent activity (opencode.last_activity_at, idle_ms) so a long-running session can be told apart from a stuck one. Use get_diff to inspect file changes.",
+        "Return the stored state of a delegated session plus its live OpenCode status when a server is running, including the time of the last agent activity (opencode.last_activity_at, idle_ms) so a long-running session can be told apart from a stuck one, and the cost and tokens of all its runs (usage). Use get_diff to inspect file changes.",
       inputSchema: {
         session_id: z
           .string()
@@ -91,6 +91,7 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
           ...(session.lastError ? { last_error: session.lastError } : {}),
           ...(session.lastSummary ? { last_summary: clipped } : {}),
           ...(session.durationMs !== undefined ? { duration_ms: session.durationMs } : {}),
+          ...(session.usage ? { usage: session.usage } : {}),
           ...(session.lastMessageID ? { last_message_id: session.lastMessageID } : {}),
           opencode: live
             ? {

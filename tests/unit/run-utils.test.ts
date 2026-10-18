@@ -4,7 +4,14 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG } from "../../src/config/config.js";
 import { BridgeError, serializeError } from "../../src/errors.js";
-import { describeError, parseModelRef, resolveModel } from "../../src/opencode/run.js";
+import type { AssistantMessage } from "../../src/opencode/api-types.js";
+import {
+  addUsage,
+  describeError,
+  parseModelRef,
+  resolveModel,
+  sumUsage,
+} from "../../src/opencode/run.js";
 import { createSessionRecord, SessionRegistry } from "../../src/opencode/sessions.js";
 import { createLogger } from "../../src/util/logger.js";
 
@@ -272,6 +279,47 @@ describe("SessionRegistry", () => {
     expect(session?.status).toBe("failed");
     expect(session?.lastError?.code).toBe("BRIDGE_RESTARTED");
     await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("sumUsage / addUsage", () => {
+  const assistant = (extra: Partial<AssistantMessage>): AssistantMessage => ({
+    id: "msg_1",
+    type: "assistant",
+    time: { created: 0 },
+    ...extra,
+  });
+
+  it("adds up cost and tokens over assistant messages", () => {
+    const usage = sumUsage([
+      assistant({
+        cost: 0.01,
+        tokens: { input: 100, output: 10, reasoning: 5, cache: { read: 50, write: 0 } },
+      }),
+      assistant({ cost: 0.02, tokens: { input: 200, output: 20, reasoning: 0 } }),
+      assistant({}),
+    ]);
+    expect(usage).toEqual({
+      cost: 0.03,
+      input_tokens: 300,
+      output_tokens: 30,
+      reasoning_tokens: 5,
+      cache_read_tokens: 50,
+      cache_write_tokens: 0,
+    });
+  });
+
+  it("is undefined when no message reports usage", () => {
+    expect(sumUsage([assistant({})])).toBeUndefined();
+    expect(sumUsage([])).toBeUndefined();
+  });
+
+  it("accumulates across runs", () => {
+    const one = sumUsage([assistant({ cost: 1, tokens: { input: 1, output: 2 } })]);
+    expect(addUsage(undefined, one)).toEqual(one);
+    expect(addUsage(one, undefined)).toEqual(one);
+    expect(addUsage(one, one)?.output_tokens).toBe(4);
+    expect(addUsage(one, one)?.cost).toBe(2);
   });
 });
 

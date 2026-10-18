@@ -5,6 +5,7 @@ import type { LoadedConfig, ResolvedConfig } from "../config/config.js";
 import type { OpenCodeManager } from "../opencode/manager.js";
 import type { SessionRegistry } from "../opencode/sessions.js";
 import type { Logger } from "../util/logger.js";
+import { EditorLocks } from "./editor-locks.js";
 import type { AppContext } from "./execute.js";
 import { registerAbortSession } from "./tools/abort-session.js";
 import { registerCreateSession } from "./tools/create-session.js";
@@ -35,7 +36,7 @@ export const SERVER_INSTRUCTIONS = [
   "Read-only agents: researcher, reviewer. Editing agent: coder. Test-running agent: tester.",
   "Agents do not see this conversation, so every task must be a self-contained brief. Always pass cwd (the absolute project root).",
   "After a coder session, call get_diff to inspect exactly what changed, and have reviewer and/or tester check it before reporting back; do not rely on the coder's own summary.",
-  "Agents share your working tree: never run two editing sessions on the same cwd at once, and do not edit files yourself while a coder runs.",
+  "Agents share your working tree: an editing run on a cwd where another one is in progress fails with WORKSPACE_BUSY, and you should not edit files yourself while a coder runs.",
   "Paths supplied to delegate_task are exploration hints, not boundaries.",
 ].join(" ");
 
@@ -58,6 +59,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     globalConfig: options.globalConfig,
     env: options.env ?? process.env,
     stateDir: options.stateDir,
+    editorLocks: new EditorLocks(),
     ...(options.loadProjectConfig ? { loadProjectConfig: options.loadProjectConfig } : {}),
   };
 
