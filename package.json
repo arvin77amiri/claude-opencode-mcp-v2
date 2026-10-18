@@ -1,6 +1,6 @@
 {
   "name": "claude-opencode-mcp-v2",
-  "version": "2.0.0-alpha.3",
+  "version": "2.0.0-alpha.4",
   "description": "MCP bridge that lets Claude Code delegate software-engineering tasks to OpenCode 2.x agents. Port of claude-opencode-mcp to the OpenCode v2 HTTP API.",
   "type": "module",
   "license": "MIT",

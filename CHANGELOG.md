@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.4] - 2026-10-18
+
 ### Added
 - Run results (`delegate_task`, `send_message`) include `changed_files`: the changed files as `{ file, status, additions, deletions }` (first 100), from the same source as `files_changed`, which stays the count.
 - Run results include `usage` (`cost`, `input_tokens`, `output_tokens`, `reasoning_tokens`, `cache_read_tokens`, `cache_write_tokens`), added up over the run's assistant messages; `get_session` reports the total over all runs of the session.

@@ -1,6 +1,6 @@
 {
   "name": "opencode-bridge",
-  "version": "2.0.0-alpha.3",
+  "version": "2.0.0-alpha.4",
   "description": "Delegate software-engineering tasks to OpenCode 2.x agents (researcher, coder, reviewer, tester) from Claude Code. Bundles the claude-opencode-mcp-v2 MCP server and a skill that teaches Claude how to orchestrate it.",
   "author": {
     "name": "javi01"
