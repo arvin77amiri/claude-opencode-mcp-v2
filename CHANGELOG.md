@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.3] - 2026-10-18
+
 ### Added
 - `get_session` reports `opencode.last_activity_at`, `idle_ms` and `last_activity` for live sessions, derived from the newest message and part timestamps.
 
