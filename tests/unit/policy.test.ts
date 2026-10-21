@@ -76,6 +76,16 @@ describe("buildPermissions", () => {
     }
   });
 
+  it("denies by default and names execute (code mode) explicitly", () => {
+    for (const profile of ["read", "review", "edit", "code", "test"] as const) {
+      const permissions = buildPermissions(profile, DEFAULT_CONFIG.security);
+      // "*" must come first: later, more specific rules override it (last match wins).
+      expect(Object.keys(permissions)[0]).toBe("*");
+      expect(permissions["*"]).toBe("deny");
+      expect(permissions.execute).toBe("deny");
+    }
+  });
+
   it("protects env and credential files by default", () => {
     const permissions = buildPermissions("code", DEFAULT_CONFIG.security);
     expect(permissions.read).toEqual(

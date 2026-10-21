@@ -68,6 +68,11 @@ export function buildPermissions(
   const capabilities = PROFILE_CAPABILITIES[profile];
   const externalDirectory: PermissionAction = security.externalDirectory ?? "deny";
   const base: PermissionConfig = {
+    // Deny-by-default: emitted first, so every rule below overrides it ("last match wins").
+    // Without it, actions this policy does not name (`execute` code mode, `browser`, tools
+    // added by future OpenCode versions) fall back to the server default, which is `allow *`
+    // on the OpenCode Desktop service.
+    "*": "deny",
     read: sensitiveFileRules(security),
     glob: "allow",
     // `grep` is authorised by its search pattern, not by the files it reads, so it cannot
@@ -82,6 +87,9 @@ export function buildPermissions(
     // OpenCode 2.x names these `subagent` and `shell` (v1: `task` / `bash`); a rule under the
     // old name is silently ignored.
     subagent: "deny",
+    // Code mode exposes mutating OpenCode tools (worktree_create, session_move, session_rename)
+    // even to read-only agents; named explicitly so the intent survives a change of default.
+    execute: "deny",
     question: "deny",
     doom_loop: "deny",
     external_directory: externalDirectory,
