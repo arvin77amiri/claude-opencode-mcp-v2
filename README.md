@@ -226,6 +226,9 @@ If you prefer to control OpenCode yourself, start `opencode serve` and point
 the bridge at it with `opencode.url` (plus `opencode.password` or
 `OPENCODE_SERVER_PASSWORD`, user `opencode`); see
 [docs/configuration.md](docs/configuration.md#connecting-to-an-existing-opencode-server).
+With **OpenCode Desktop**, set `"opencode": { "desktop": true }` instead: the bridge
+reads the app's `service.json` before every run and never starts a second engine
+([details](docs/configuration.md#using-the-opencode-desktop-service)).
 
 ## Choose a model per agent
 

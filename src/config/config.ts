@@ -38,6 +38,14 @@ export const BridgeConfigSchema = z.object({
     .object({
       /** Connect to an already-running OpenCode server instead of starting one. */
       url: z.string().nullable().default(null),
+      /**
+       * Use the OpenCode Desktop background service: url and password are read from its
+       * `service.json` before every run (they change on each app start). Takes precedence
+       * over `url`, and never spawns an engine: a closed app is an OPENCODE_UNAVAILABLE error.
+       */
+      desktop: z.boolean().default(false),
+      /** Override the location of `service.json` (default `~/.local/state/opencode/service.json`). */
+      serviceFile: z.string().nullable().default(null),
       autoStart: z.boolean().default(true),
       hostname: z.string().default("127.0.0.1"),
       port: z.number().int().min(0).max(65535).default(0),

@@ -5,6 +5,7 @@ import { BridgeError } from "../errors.js";
 import type { Logger } from "../util/logger.js";
 import { BinaryResolver, needsShell, type ResolveBinaryOptions, shellQuote } from "./binary.js";
 import { type AuthCredentials, fetchHealth, normalizeBaseUrl, OpenCodeClient } from "./client.js";
+import { readDesktopService, serviceFingerprint } from "./desktop-service.js";
 import { PermissionWatcher } from "./permission-watcher.js";
 
 export interface ServerStatus {
@@ -29,6 +30,8 @@ interface ServerRecord {
   watcher: PermissionWatcher;
   dead: boolean;
   stderr: string[];
+  /** Set for an OpenCode Desktop service connection: identifies the app instance. */
+  desktopFingerprint: string | null;
 }
 
 export interface EnsureServerInput {
@@ -124,15 +127,22 @@ export class OpenCodeManager {
     if (this.stopping) {
       throw new BridgeError("OPENCODE_UNAVAILABLE", "The bridge is shutting down.");
     }
+    const desktop = input.config.opencode.desktop;
     const current = this.record;
     if (current && !current.dead) {
-      current.lastUsedAt = Date.now();
-      return current.key;
+      if (!desktop || this.desktopStillCurrent(current, input.config)) {
+        current.lastUsedAt = Date.now();
+        return current.key;
+      }
     }
     if (this.inflight) return this.inflight;
 
     const task = (
-      input.config.opencode.url ? this.ensureExternal(input) : this.ensureLocal(input)
+      desktop
+        ? this.ensureDesktop(input)
+        : input.config.opencode.url
+          ? this.ensureExternal(input)
+          : this.ensureLocal(input)
     ).finally(() => {
       this.inflight = null;
     });
@@ -167,6 +177,41 @@ export class OpenCodeManager {
     return record && !record.dead ? record.version : null;
   }
 
+  /**
+   * Desktop mode: re-read service.json and keep the connection only while it still points
+   * at the same app instance. A restarted app (new port/password/pid) drops the record so
+   * the next ensure reconnects; a closed app drops it and surfaces the clear error.
+   */
+  private desktopStillCurrent(record: ServerRecord, config: ResolvedConfig): boolean {
+    try {
+      const service = readDesktopService({ file: config.opencode.serviceFile, env: this.env });
+      if (record.desktopFingerprint === serviceFingerprint(service)) return true;
+      this.logger.info("OpenCode Desktop service changed; reconnecting", { url: service.url });
+    } catch (error) {
+      this.dropRecord(record);
+      throw error;
+    }
+    this.dropRecord(record);
+    return false;
+  }
+
+  private dropRecord(record: ServerRecord): void {
+    if (this.record === record) this.record = null;
+    record.dead = true;
+    void record.watcher.stop().catch(() => undefined);
+  }
+
+  private async ensureDesktop(input: EnsureServerInput): Promise<string> {
+    if (input.config.opencode.url) {
+      this.logger.warn("opencode.desktop is set; ignoring opencode.url", {});
+    }
+    const service = readDesktopService({ file: input.config.opencode.serviceFile, env: this.env });
+    return this.connectExternal(service.url, service.auth, {
+      fingerprint: serviceFingerprint(service),
+      unreachable: `OpenCode Desktop service at ${normalizeBaseUrl(service.url)} (pid ${service.pid}) did not answer GET /api/info. Restart OpenCode Desktop and retry.`,
+    });
+  }
+
   private async ensureExternal(input: EnsureServerInput): Promise<string> {
     const rawUrl = input.config.opencode.url;
     if (!rawUrl) {
@@ -182,13 +227,22 @@ export class OpenCodeManager {
       parsed.username = "";
       parsed.password = "";
     }
-    const baseUrl = normalizeBaseUrl(parsed.toString());
+    return this.connectExternal(parsed.toString(), auth, null);
+  }
+
+  private async connectExternal(
+    rawUrl: string,
+    auth: AuthCredentials | null,
+    desktop: { fingerprint: string; unreachable: string } | null,
+  ): Promise<string> {
+    const baseUrl = normalizeBaseUrl(rawUrl);
 
     const health = await fetchHealth(baseUrl, auth);
     if (!health) {
       throw new BridgeError(
         "OPENCODE_UNAVAILABLE",
-        `Could not reach an OpenCode 2.x server at ${baseUrl} (GET /api/info failed; check the URL and credentials).`,
+        desktop?.unreachable ??
+          `Could not reach an OpenCode 2.x server at ${baseUrl} (GET /api/info failed; check the URL and credentials).`,
         { details: { url: baseUrl } },
       );
     }
@@ -207,11 +261,12 @@ export class OpenCodeManager {
       watcher: new PermissionWatcher(client, this.logger),
       dead: false,
       stderr: [],
+      desktopFingerprint: desktop?.fingerprint ?? null,
     };
-    this.logger.info("connected to external OpenCode server", {
-      url: baseUrl,
-      version: health.version,
-    });
+    this.logger.info(
+      desktop ? "connected to OpenCode Desktop service" : "connected to external OpenCode server",
+      { url: baseUrl, version: health.version },
+    );
     return LOCAL_KEY;
   }
 
@@ -269,6 +324,7 @@ export class OpenCodeManager {
       watcher: new PermissionWatcher(client, this.logger),
       dead: false,
       stderr,
+      desktopFingerprint: null,
     };
     this.record = record;
 

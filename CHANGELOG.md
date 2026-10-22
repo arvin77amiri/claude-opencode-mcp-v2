@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `opencode.desktop`: connect to the OpenCode Desktop background service by reading its
+  `service.json` (url, pid, password) before every run. Reconnects after an app restart,
+  fails with a clear `OPENCODE_UNAVAILABLE` when the app is closed, and never spawns an
+  engine of its own. `opencode.serviceFile` overrides the file location.
+- `install-agents` command and deny-by-default agent permissions.
+
 ## [2.0.0-alpha.4] - 2026-10-18
 
 ### Added

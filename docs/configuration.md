@@ -65,6 +65,8 @@ the offending fields.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `url` | `null` | Connect to an existing OpenCode server instead of starting one. |
+| `desktop` | `false` | Use the OpenCode Desktop background service; url and password come from its `service.json`. Overrides `url` and never starts an engine. See [below](#using-the-opencode-desktop-service). |
+| `serviceFile` | `null` | Path of the Desktop `service.json` (default `$XDG_STATE_HOME/opencode/service.json`, else `~/.local/state/opencode/service.json`). |
 | `autoStart` | `true` | Start a headless OpenCode server lazily on first use. |
 | `hostname` | `127.0.0.1` | Bind address for the started server. |
 | `port` | `0` | Port for the started server; `0` picks a free port. |
@@ -169,6 +171,29 @@ files from `agents/` into `.opencode/agents/` in the project, or run
 Credentials in the URL (`http://user:pass@host:port`) or in `username`/`password`
 are sent as HTTP basic auth. Credentials from the environment are only used for
 auto-started servers, never for external URLs.
+
+## Using the OpenCode Desktop service
+
+OpenCode Desktop (2.1+) runs one background `opencode-cli` service and writes how
+to reach it to `~/.local/state/opencode/service.json` (`url`, `pid`, `password`, ...).
+The port and password change on every app start, so do not copy them into
+`opencode.url`. Instead:
+
+```json
+{
+  "opencode": { "desktop": true }
+}
+```
+
+- Before every run the bridge re-reads `service.json`. If the app was restarted
+  (new port, password or pid) it reconnects transparently.
+- If the app is closed (file missing, or its `pid` has exited) the call fails with
+  `OPENCODE_UNAVAILABLE` and a hint to open OpenCode Desktop. The bridge never
+  starts a second OpenCode engine in this mode, whatever `autoStart` says.
+- The password is used only as HTTP basic auth and is never logged.
+- As with any external server, install the bridge agents on it with
+  `claude-opencode-v2 install-agents --global`; otherwise the server runs its
+  default agent and only the per-session permission ruleset applies.
 
 ## Environment variables
 

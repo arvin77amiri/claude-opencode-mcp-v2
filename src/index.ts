@@ -66,16 +66,20 @@ async function runServer(): Promise<void> {
   // Never orphan an OpenCode child, even if we exit through an unexpected path.
   process.on("exit", () => manager.killAllSync());
 
-  if (globalConfig.opencode.autoStart && !globalConfig.opencode.url) {
+  // Desktop mode warms up too: it only connects to the running app (never spawns), and an
+  // early warning tells the user the app is closed before the first delegation fails.
+  const desktop = globalConfig.opencode.desktop;
+  if (desktop || (globalConfig.opencode.autoStart && !globalConfig.opencode.url)) {
     setImmediate(() => {
       void (async () => {
         try {
           await prepareRun({ manager, logger, env, globalConfig }, {});
           logger.info("warmed up OpenCode for the default workspace");
         } catch (error) {
-          logger.debug("OpenCode warmup skipped", {
-            error: error instanceof Error ? error.message : String(error),
-          });
+          const message = error instanceof Error ? error.message : String(error);
+          if (desktop)
+            logger.warn("OpenCode Desktop service not available yet", { error: message });
+          else logger.debug("OpenCode warmup skipped", { error: message });
         }
       })();
     });
