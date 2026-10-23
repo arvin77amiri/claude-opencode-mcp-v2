@@ -19,6 +19,27 @@ let server: McpServer;
 const tempDirs: string[] = [];
 const ID = ["-c", "user.email=t@t", "-c", "user.name=t"];
 
+function tryChattr(): boolean {
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "co-chattr-"));
+    const file = path.join(dir, "f");
+    fs.writeFileSync(file, "");
+    execFileSync("chattr", ["+i", file], { stdio: "ignore" });
+    let held = false;
+    try {
+      fs.rmSync(file);
+    } catch {
+      held = true;
+    }
+    execFileSync("chattr", ["-i", file], { stdio: "ignore" });
+    fs.rmSync(dir, { recursive: true, force: true });
+    return held;
+  } catch {
+    return false;
+  }
+}
+const canLock = tryChattr();
+
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.promises.realpath(await fs.promises.mkdtemp(path.join(os.tmpdir(), prefix)));
   tempDirs.push(dir);
@@ -212,4 +233,50 @@ describe("worktree isolation", () => {
     const discarded = await call("discard_task", { session_id: task.session_id });
     expect(discarded.discarded).toBe(true);
   });
+
+  it("survives a failed merge_task (no crash) and keeps serving", async () => {
+    const root = await repo();
+    const task = await call("delegate_task", { cwd: root, agent: "coder", task: "WRITE delta" });
+    fs.writeFileSync(path.join(root, "a.txt"), "dirty\n");
+    const refused = await call("merge_task", { session_id: task.session_id });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused)).toContain("WORKSPACE_DIRTY");
+    g(root, "checkout", "-q", "--", "a.txt");
+
+    const listed = await call("list_agents", { cwd: root });
+    expect(listed.isError).toBe(false);
+    const merged = await call("merge_task", { session_id: task.session_id });
+    expect(merged.merged).toBe(true);
+  });
+
+  it.skipIf(!canLock)(
+    "reports a locked worktree as cleanup_pending after a successful merge and sweeps it later",
+    async () => {
+      const root = await repo();
+      const task = await call("delegate_task", { cwd: root, agent: "coder", task: "WRITE eps" });
+      const held = path.join(task.worktree.path, "held.txt");
+      fs.writeFileSync(held, "x\n");
+      execFileSync("chattr", ["+i", held]);
+      let merged: any;
+      try {
+        merged = await call("merge_task", { session_id: task.session_id, message: "eps" });
+      } finally {
+        execFileSync("chattr", ["-i", held]);
+      }
+      expect(merged.isError).toBe(false);
+      expect(merged.merged).toBe(true);
+      expect(merged.cleanup_pending).toBe(true);
+      expect(merged.worktree.state).toBe("merged");
+      expect(g(root, "log", "-1", "--format=%s").trim()).toBe("eps");
+
+      // The next merge/discard sweeps pending cleanups in the background.
+      const other = await call("delegate_task", { cwd: root, agent: "coder", task: "WRITE zeta" });
+      await call("discard_task", { session_id: other.session_id });
+      for (let i = 0; i < 50 && fs.existsSync(task.worktree.path); i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(fs.existsSync(task.worktree.path)).toBe(false);
+      expect(g(root, "branch", "--list", "oc/*").trim()).toBe("");
+    },
+  );
 });

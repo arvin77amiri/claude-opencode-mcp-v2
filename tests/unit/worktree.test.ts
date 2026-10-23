@@ -11,6 +11,30 @@ import {
 } from "../../src/workspace/worktree.js";
 
 const tempDirs: string[] = [];
+
+/** Simulates a directory held open (EBUSY on Windows) with an immutable file; needs root + chattr. */
+function tryChattr(): boolean {
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "co-chattr-"));
+    const file = path.join(dir, "f");
+    fs.writeFileSync(file, "");
+    execFileSync("chattr", ["+i", file], { stdio: "ignore" });
+    let held = false;
+    try {
+      fs.rmSync(file);
+    } catch {
+      held = true;
+    }
+    execFileSync("chattr", ["-i", file], { stdio: "ignore" });
+    fs.rmSync(dir, { recursive: true, force: true });
+    return held;
+  } catch {
+    return false;
+  }
+}
+const canLock = tryChattr();
+const lock = (file: string) => execFileSync("chattr", ["+i", file]);
+const unlock = (file: string) => execFileSync("chattr", ["-i", file]);
 const ID = ["-c", "user.email=t@t", "-c", "user.name=t"];
 
 function g(cwd: string, ...args: string[]): string {
@@ -170,4 +194,32 @@ describe("task worktrees", () => {
     expect(g(root, "rev-parse", "HEAD")).toBe(head);
     expect(fs.readFileSync(path.join(root, "a.txt"), "utf8")).toBe("one\n");
   });
+
+  it.skipIf(!canLock)(
+    "reports a locked worktree as not removed (no throw) and removes it once unlocked",
+    async () => {
+      const root = await repo();
+      const wt = await createTaskWorktree({ cwd: root, key: "ses_7", agent: "coder" });
+      fs.writeFileSync(path.join(wt.path, "a.txt"), "agent\n");
+      const locked = path.join(wt.path, "held.txt");
+      fs.writeFileSync(locked, "held\n");
+      lock(locked);
+      try {
+        // Merge succeeds even though the worktree cannot be deleted afterwards.
+        const outcome = await mergeTaskWorktree(wt, "locked merge");
+        expect(outcome.status).toBe("merged");
+        if (outcome.status === "merged") {
+          expect(outcome.cleanup.removed).toBe(false);
+          expect(outcome.cleanup.error).toBeTruthy();
+        }
+        expect(g(root, "log", "-1", "--format=%s").trim()).toBe("locked merge");
+        expect(fs.existsSync(wt.path)).toBe(true);
+      } finally {
+        unlock(locked);
+      }
+      expect(await removeTaskWorktree(wt, [0])).toEqual({ removed: true });
+      expect(fs.existsSync(wt.path)).toBe(false);
+      expect(g(root, "branch", "--list", "oc/*").trim()).toBe("");
+    },
+  );
 });

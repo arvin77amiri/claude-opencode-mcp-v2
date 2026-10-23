@@ -62,7 +62,7 @@ export async function createDelegatedSession(
     assertSessionLocation(info.location?.directory, prepared.workspace);
     opencodeId = info.id;
   } catch (error) {
-    if (worktree) await removeTaskWorktree(worktree).catch(() => undefined);
+    if (worktree) await removeTaskWorktree(worktree);
     if (error instanceof BridgeError) throw error;
     throw new BridgeError(
       "OPENCODE_UNAVAILABLE",
@@ -145,6 +145,7 @@ export function worktreeSummary(session: AgentSession): Record<string, unknown> 
       repo: wt.repoRoot,
       path: wt.path,
       ...(wt.mergedCommit ? { merged_commit: wt.mergedCommit } : {}),
+      ...(wt.cleanupPending ? { cleanup_pending: true } : {}),
       ...(wt.state === "active"
         ? {
             next: "Review with get_diff (and reviewer/tester agents), then merge_task to squash it onto the base branch or discard_task to drop it.",

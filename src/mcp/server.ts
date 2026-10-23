@@ -17,7 +17,7 @@ import { registerGetSession } from "./tools/get-session.js";
 import { registerListAgents } from "./tools/list-agents.js";
 import { registerSendMessage } from "./tools/send-message.js";
 import { registerWaitSession } from "./tools/wait-session.js";
-import { registerDiscardTask, registerMergeTask } from "./tools/worktree-tasks.js";
+import { kickSweep, registerDiscardTask, registerMergeTask } from "./tools/worktree-tasks.js";
 
 export const SERVER_NAME = "claude-opencode-mcp";
 
@@ -88,6 +88,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   registerMergeTask(server, ctx);
   registerDiscardTask(server, ctx);
   registerListAgents(server, ctx);
+
+  // Worktrees whose directory was still locked when they were merged/discarded.
+  kickSweep(ctx);
 
   return server;
 }

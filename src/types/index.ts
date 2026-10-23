@@ -164,4 +164,9 @@ export interface SessionWorktree extends TaskWorktree {
   state: "active" | "merged" | "discarded";
   /** Commit created on the base branch by merge_task. */
   mergedCommit?: string;
+  /**
+   * Set when the worktree directory or branch could not be deleted yet (e.g. the
+   * OpenCode service still held the directory on Windows). Retried later.
+   */
+  cleanupPending?: string;
 }

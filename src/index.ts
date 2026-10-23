@@ -79,6 +79,13 @@ async function runServer(): Promise<void> {
   server.server.onclose = () => {
     void shutdown("transport closed");
   };
+  // A stray rejected promise must not kill the bridge mid-session (Node's default):
+  // that would cut Claude off from every running agent. Log it and keep serving.
+  process.on("unhandledRejection", (reason) => {
+    logger.error("unhandled promise rejection (bridge kept running)", {
+      error: reason instanceof Error ? (reason.stack ?? reason.message) : String(reason),
+    });
+  });
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   // Never orphan an OpenCode child, even if we exit through an unexpected path.

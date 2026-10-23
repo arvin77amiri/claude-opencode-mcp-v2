@@ -40,9 +40,16 @@ export interface CreateTaskWorktreeInput {
   agent: string;
 }
 
+/** Result of deleting a worktree + branch. Never thrown: cleanup is best effort. */
+export interface CleanupResult {
+  removed: boolean;
+  /** Why the worktree directory or branch is still there (e.g. EBUSY on Windows). */
+  error?: string;
+}
+
 export type MergeOutcome =
-  | { status: "merged"; commit: string; files: string[] }
-  | { status: "empty" }
+  | { status: "merged"; commit: string; files: string[]; cleanup: CleanupResult }
+  | { status: "empty"; cleanup: CleanupResult }
   | { status: "conflict"; files: string[] };
 
 const BRANCH_PREFIX = "oc";
@@ -222,8 +229,7 @@ export async function mergeTaskWorktree(wt: TaskWorktree, message: string): Prom
     )
   ).trim();
   if (ahead === "0") {
-    await removeTaskWorktree(wt);
-    return { status: "empty" };
+    return { status: "empty", cleanup: await removeTaskWorktree(wt) };
   }
 
   const branchNow = await currentBranch(wt.repoRoot);
@@ -271,23 +277,70 @@ export async function mergeTaskWorktree(wt: TaskWorktree, message: string): Prom
     .filter(Boolean);
   if (files.length === 0) {
     // The base branch already contains identical changes.
-    await removeTaskWorktree(wt);
-    return { status: "empty" };
+    return { status: "empty", cleanup: await removeTaskWorktree(wt) };
   }
   await git(wt.repoRoot, await commitArgs(wt.repoRoot, message), "git commit");
   const commit = (await git(wt.repoRoot, ["rev-parse", "HEAD"], "git rev-parse")).trim();
-  await removeTaskWorktree(wt);
-  return { status: "merged", commit, files };
+  // The commit is made: from here on nothing may throw, cleanup is best effort.
+  return { status: "merged", commit, files, cleanup: await removeTaskWorktree(wt) };
 }
 
-/** Delete the worktree and its branch. Safe to call when either is already gone. */
-export async function removeTaskWorktree(wt: TaskWorktree): Promise<void> {
-  if (fs.existsSync(wt.path)) {
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Delays between removal attempts. On Windows the OpenCode service can hold the
+ * worktree directory open for a moment after its session goes idle (EBUSY). */
+export const REMOVE_RETRY_DELAYS_MS = [0, 300, 800, 1_500, 2_500];
+
+/**
+ * Delete the worktree and its branch. Safe to call when either is already
+ * gone. Never throws: when the directory stays locked (EBUSY/EPERM), returns
+ * `{ removed: false }` and the caller records the cleanup as pending.
+ */
+export async function removeTaskWorktree(
+  wt: TaskWorktree,
+  delays: number[] = REMOVE_RETRY_DELAYS_MS,
+): Promise<CleanupResult> {
+  let lastError = "";
+  for (const delay of delays) {
+    if (!fs.existsSync(wt.path)) break;
+    if (delay > 0) await sleep(delay);
     const removed = await runGit(wt.repoRoot, ["worktree", "remove", "--force", wt.path], {
       timeoutMs: 120_000,
     });
-    if (removed.failed) await fs.promises.rm(wt.path, { recursive: true, force: true });
+    if (!removed.failed && !fs.existsSync(wt.path)) break;
+    lastError = removed.stderr.trim() || lastError;
+    try {
+      await fs.promises.rm(wt.path, {
+        recursive: true,
+        force: true,
+        maxRetries: 2,
+        retryDelay: 200,
+      });
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
   }
-  await runGit(wt.repoRoot, ["worktree", "prune"], { timeoutMs: 30_000 });
-  await runGit(wt.repoRoot, ["branch", "-D", wt.branch], { timeoutMs: 15_000 });
+  try {
+    await runGit(wt.repoRoot, ["worktree", "prune"], { timeoutMs: 30_000 });
+    if (fs.existsSync(wt.path)) {
+      return { removed: false, error: lastError || `could not remove ${wt.path}` };
+    }
+    const branch = await runGit(wt.repoRoot, ["branch", "-D", wt.branch], { timeoutMs: 15_000 });
+    const branchGone =
+      !branch.failed ||
+      (
+        await runGit(wt.repoRoot, ["rev-parse", "--verify", "--quiet", `refs/heads/${wt.branch}`], {
+          timeoutMs: 5_000,
+        })
+      ).failed;
+    if (!branchGone) {
+      return {
+        removed: false,
+        error: branch.stderr.trim() || `could not delete branch ${wt.branch}`,
+      };
+    }
+    return { removed: true };
+  } catch (error) {
+    return { removed: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }

@@ -3,7 +3,11 @@ import { z } from "zod";
 import { BridgeError } from "../../errors.js";
 import type { AgentSession, SessionWorktree } from "../../types/index.js";
 import { requestId } from "../../util/text.js";
-import { mergeTaskWorktree, removeTaskWorktree } from "../../workspace/worktree.js";
+import {
+  type CleanupResult,
+  mergeTaskWorktree,
+  removeTaskWorktree,
+} from "../../workspace/worktree.js";
 import { type AppContext, assertSession } from "../execute.js";
 import { worktreeSummary } from "../session-utils.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
@@ -15,10 +19,60 @@ function withRepoLock<T>(repo: string, fn: () => Promise<T>): Promise<T> {
   const previous = repoQueues.get(repo) ?? Promise.resolve();
   const next = previous.catch(() => undefined).then(fn);
   repoQueues.set(repo, next);
-  void next.finally(() => {
+  // Both branches handled: a rejected `next` must not become an unhandled rejection
+  // (that crashes the bridge process); the caller gets the rejection from `next` itself.
+  const release = () => {
     if (repoQueues.get(repo) === next) repoQueues.delete(repo);
-  });
+  };
+  next.then(release, release);
   return next;
+}
+
+/**
+ * Retry the cleanups that failed earlier (worktree directory still locked).
+ * Best effort and quiet: one attempt per worktree, errors only logged.
+ */
+export async function sweepPendingCleanups(ctx: AppContext): Promise<number> {
+  let cleaned = 0;
+  for (const session of ctx.registry.list()) {
+    const wt = session.worktree;
+    if (!wt?.cleanupPending) continue;
+    try {
+      const result = await withRepoLock(wt.repoRoot, () => removeTaskWorktree(wt, [0]));
+      if (result.removed) {
+        const { cleanupPending: _done, ...rest } = wt;
+        ctx.registry.upsert({ ...session, worktree: rest });
+        ctx.logger.info("cleaned up pending task worktree", {
+          session_id: session.id,
+          path: wt.path,
+        });
+        cleaned += 1;
+      }
+    } catch (error) {
+      ctx.logger.debug("pending worktree cleanup failed", {
+        session_id: session.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return cleaned;
+}
+
+/** Start a background sweep of pending cleanups (never awaited, never throws). */
+export function kickSweep(ctx: AppContext): void {
+  sweepPendingCleanups(ctx).catch(() => undefined);
+}
+
+function cleanupFields(cleanup: CleanupResult): { cleanupPending?: string } {
+  return cleanup.removed ? {} : { cleanupPending: cleanup.error ?? "worktree still present" };
+}
+
+function cleanupNote(cleanup: CleanupResult): Record<string, unknown> {
+  if (cleanup.removed) return {};
+  return {
+    cleanup_pending: true,
+    cleanup_note: `The worktree directory or branch could not be deleted yet (${cleanup.error ?? "locked"}); the bridge retries on later calls and at startup. Your project is not affected.`,
+  };
 }
 
 function activeWorktree(
@@ -107,7 +161,9 @@ export function registerMergeTask(server: McpServer, ctx: AppContext): void {
           ...wt,
           state: "merged",
           ...(outcome.status === "merged" ? { mergedCommit: outcome.commit } : {}),
+          ...cleanupFields(outcome.cleanup),
         });
+        kickSweep(ctx);
         ctx.logger.info("merged task worktree", {
           session_id: session.id,
           branch: wt.branch,
@@ -119,8 +175,9 @@ export function registerMergeTask(server: McpServer, ctx: AppContext): void {
           ...(outcome.status === "merged"
             ? { commit: outcome.commit, base_branch: wt.baseBranch, files: outcome.files }
             : {
-                note: "The task made no changes (or its changes are already on the base branch); the worktree was removed without a commit.",
+                note: "The task made no changes (or its changes are already on the base branch); nothing was committed.",
               }),
+          ...cleanupNote(outcome.cleanup),
           ...worktreeSummary(updated),
         });
       } catch (error) {
@@ -150,10 +207,24 @@ export function registerDiscardTask(server: McpServer, ctx: AppContext): void {
       const rid = requestId();
       try {
         const { session, wt } = activeWorktree(ctx, args.session_id);
-        await withRepoLock(wt.repoRoot, () => removeTaskWorktree(wt));
-        const updated = setWorktree(ctx, session, { ...wt, state: "discarded" });
-        ctx.logger.info("discarded task worktree", { session_id: session.id, branch: wt.branch });
-        return jsonResult({ session_id: session.id, discarded: true, ...worktreeSummary(updated) });
+        const cleanup = await withRepoLock(wt.repoRoot, () => removeTaskWorktree(wt));
+        const updated = setWorktree(ctx, session, {
+          ...wt,
+          state: "discarded",
+          ...cleanupFields(cleanup),
+        });
+        ctx.logger.info("discarded task worktree", {
+          session_id: session.id,
+          branch: wt.branch,
+          removed: cleanup.removed,
+        });
+        kickSweep(ctx);
+        return jsonResult({
+          session_id: session.id,
+          discarded: true,
+          ...cleanupNote(cleanup),
+          ...worktreeSummary(updated),
+        });
       } catch (error) {
         ctx.logger.error("discard_task failed", {
           request_id: rid,
