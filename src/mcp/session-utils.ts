@@ -146,6 +146,7 @@ export function worktreeSummary(session: AgentSession): Record<string, unknown> 
       path: wt.path,
       ...(wt.mergedCommit ? { merged_commit: wt.mergedCommit } : {}),
       ...(wt.cleanupPending ? { cleanup_pending: true } : {}),
+      ...(wt.leftoverDir ? { leftover_dir: wt.leftoverDir } : {}),
       ...(wt.state === "active"
         ? {
             next: "Review with get_diff (and reviewer/tester agents), then merge_task to squash it onto the base branch or discard_task to drop it.",

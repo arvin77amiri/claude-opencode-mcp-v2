@@ -6,6 +6,7 @@ import { requestId } from "../../util/text.js";
 import {
   type CleanupResult,
   mergeTaskWorktree,
+  removeLeftoverDir,
   removeTaskWorktree,
 } from "../../workspace/worktree.js";
 import { type AppContext, assertSession } from "../execute.js";
@@ -36,17 +37,26 @@ export async function sweepPendingCleanups(ctx: AppContext): Promise<number> {
   let cleaned = 0;
   for (const session of ctx.registry.list()) {
     const wt = session.worktree;
-    if (!wt?.cleanupPending) continue;
+    if (!wt?.cleanupPending && !wt?.leftoverDir) continue;
     try {
-      const result = await withRepoLock(wt.repoRoot, () => removeTaskWorktree(wt, [0]));
-      if (result.removed) {
-        const { cleanupPending: _done, ...rest } = wt;
-        ctx.registry.upsert({ ...session, worktree: rest });
-        ctx.logger.info("cleaned up pending task worktree", {
-          session_id: session.id,
-          path: wt.path,
-        });
-        cleaned += 1;
+      let next: SessionWorktree = wt;
+      if (wt.cleanupPending) {
+        const result = await withRepoLock(wt.repoRoot, () => removeTaskWorktree(wt, [0]));
+        if (result.removed) {
+          const { cleanupPending: _done, ...rest } = next;
+          next = { ...rest, ...(result.leftoverDir ? { leftoverDir: result.leftoverDir } : {}) };
+        }
+      }
+      if (next.leftoverDir && (await removeLeftoverDir(next.leftoverDir))) {
+        const { leftoverDir: _gone, ...rest } = next;
+        next = rest;
+      }
+      if (next !== wt) {
+        ctx.registry.upsert({ ...session, worktree: next });
+        if (!next.cleanupPending && !next.leftoverDir) {
+          ctx.logger.info("cleaned up task worktree", { session_id: session.id, path: wt.path });
+          cleaned += 1;
+        }
       }
     } catch (error) {
       ctx.logger.debug("pending worktree cleanup failed", {
@@ -63,11 +73,22 @@ export function kickSweep(ctx: AppContext): void {
   sweepPendingCleanups(ctx).catch(() => undefined);
 }
 
-function cleanupFields(cleanup: CleanupResult): { cleanupPending?: string } {
-  return cleanup.removed ? {} : { cleanupPending: cleanup.error ?? "worktree still present" };
+function cleanupFields(cleanup: CleanupResult): {
+  cleanupPending?: string;
+  leftoverDir?: string;
+} {
+  if (!cleanup.removed) return { cleanupPending: cleanup.error ?? "worktree still present" };
+  return cleanup.leftoverDir ? { leftoverDir: cleanup.leftoverDir } : {};
 }
 
 function cleanupNote(cleanup: CleanupResult): Record<string, unknown> {
+  if (cleanup.removed && cleanup.leftoverDir) {
+    return {
+      leftover_dir: cleanup.leftoverDir,
+      cleanup_note:
+        "Worktree and branch are removed; only an empty folder is still held open by the OpenCode service (common on Windows). The bridge deletes it later; it is harmless.",
+    };
+  }
   if (cleanup.removed) return {};
   return {
     cleanup_pending: true,

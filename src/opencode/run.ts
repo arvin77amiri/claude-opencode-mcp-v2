@@ -367,6 +367,8 @@ export async function runPrompt(input: RunPromptInput): Promise<RunResult> {
   let pollTimer: NodeJS.Timeout | null = null;
   let timeoutTimer: NodeJS.Timeout | null = null;
   let resolveOutcome: ((outcome: RunOutcome) => void) | null = null;
+  /** Outcome reached before anyone waits on it (e.g. the idle event beat the prompt reply). */
+  let earlyOutcome: RunOutcome | null = null;
   const streamAbort = new AbortController();
 
   let sawActivity = false;
@@ -385,7 +387,8 @@ export async function runPrompt(input: RunPromptInput): Promise<RunResult> {
   const settle = (outcome: RunOutcome) => {
     if (settled) return;
     settled = true;
-    resolveOutcome?.(outcome);
+    if (resolveOutcome) resolveOutcome(outcome);
+    else earlyOutcome = outcome;
   };
 
   let pendingInterrupt: Promise<void> | null = null;
@@ -470,7 +473,12 @@ export async function runPrompt(input: RunPromptInput): Promise<RunResult> {
 
   const outcome = await new Promise<RunOutcome>((resolve) => {
     resolveOutcome = resolve;
-    if (settled) return;
+    // A fast run can finish (idle event on the stream) while the prompt request is still
+    // in flight; without this the outcome was dropped and the run waited forever.
+    if (settled) {
+      resolve(earlyOutcome ?? { kind: "done" });
+      return;
+    }
 
     timeoutTimer = setTimeout(() => {
       void interruptSession();

@@ -129,6 +129,22 @@ describe("MCP tool surface", () => {
 });
 
 describe("delegate_task", () => {
+  it("returns when the run finishes before the prompt request is answered", async () => {
+    // The idle event reaches the bridge while POST /prompt is still in flight; that
+    // outcome used to be dropped and the run waited until its timeout.
+    await setupApp({ fakeOptions: { promptReplyDelayMs: 300 } });
+    const workspace = await tempDir();
+    const started = Date.now();
+    const result = parse(
+      await client.callTool({
+        name: "delegate_task",
+        arguments: { task: "quick", cwd: workspace, timeout: 20_000 },
+      }),
+    );
+    expect(result.status).toBe("completed");
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+
   it("runs a task end-to-end and returns a structured result", async () => {
     await setupApp({});
     const workspace = await tempDir();

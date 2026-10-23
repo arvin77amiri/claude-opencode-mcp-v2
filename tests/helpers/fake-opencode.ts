@@ -52,6 +52,8 @@ export interface FakeOpenCodeOptions {
   /** Model catalog; defaults to deepseek/deepseek-v4-pro only. */
   models?: Array<{ id: string; providerID: string }>;
   diff?: FileDiff[];
+  /** Delay the HTTP reply to POST /prompt (the run itself starts at once). */
+  promptReplyDelayMs?: number;
   onPrompt?: (request: FakePromptRequest) => FakePromptResponse | Promise<FakePromptResponse>;
 }
 
@@ -409,6 +411,9 @@ export class FakeOpenCode {
         void this.execute(session, request, userId).catch(() => {
           session.running = false;
         });
+        if (this.options.promptReplyDelayMs) {
+          await new Promise((resolve) => setTimeout(resolve, this.options.promptReplyDelayMs));
+        }
         this.json(res, { data: { id: userId, type: "user", text, time: { created: Date.now() } } });
         return;
       }

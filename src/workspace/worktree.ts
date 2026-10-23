@@ -42,7 +42,10 @@ export interface CreateTaskWorktreeInput {
 
 /** Result of deleting a worktree + branch. Never thrown: cleanup is best effort. */
 export interface CleanupResult {
+  /** The worktree is unregistered and its branch deleted. */
   removed: boolean;
+  /** An empty folder that could not be deleted yet (held open on Windows); harmless. */
+  leftoverDir?: string;
   /** Why the worktree directory or branch is still there (e.g. EBUSY on Windows). */
   error?: string;
 }
@@ -302,7 +305,10 @@ export async function removeTaskWorktree(
 ): Promise<CleanupResult> {
   let lastError = "";
   for (const delay of delays) {
-    if (!fs.existsSync(wt.path)) break;
+    // An empty directory is no longer a worktree: on Windows the OpenCode service can keep
+    // a handle on the folder itself long after its session is idle (until the app restarts),
+    // so waiting longer does not help. git cleanup goes ahead; the folder is retried later.
+    if (!fs.existsSync(wt.path) || isEmptyDir(wt.path)) break;
     if (delay > 0) await sleep(delay);
     const removed = await runGit(wt.repoRoot, ["worktree", "remove", "--force", wt.path], {
       timeoutMs: 120_000,
@@ -321,10 +327,11 @@ export async function removeTaskWorktree(
     }
   }
   try {
-    await runGit(wt.repoRoot, ["worktree", "prune"], { timeoutMs: 30_000 });
-    if (fs.existsSync(wt.path)) {
+    if (fs.existsSync(wt.path) && !isEmptyDir(wt.path)) {
       return { removed: false, error: lastError || `could not remove ${wt.path}` };
     }
+    // The worktree's .git file is gone, so prune unregisters it and the branch can go.
+    await runGit(wt.repoRoot, ["worktree", "prune"], { timeoutMs: 30_000 });
     const branch = await runGit(wt.repoRoot, ["branch", "-D", wt.branch], { timeoutMs: 15_000 });
     const branchGone =
       !branch.failed ||
@@ -339,8 +346,36 @@ export async function removeTaskWorktree(
         error: branch.stderr.trim() || `could not delete branch ${wt.branch}`,
       };
     }
+    if (fs.existsSync(wt.path)) {
+      // Last chance for the empty folder; if it is still held, report it as a leftover.
+      try {
+        await fs.promises.rmdir(wt.path);
+      } catch {
+        return { removed: true, leftoverDir: wt.path };
+      }
+    }
     return { removed: true };
   } catch (error) {
     return { removed: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function isEmptyDir(dir: string): boolean {
+  try {
+    return fs.statSync(dir).isDirectory() && fs.readdirSync(dir).length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Remove an empty leftover worktree folder. Returns true when it is gone. */
+export async function removeLeftoverDir(dir: string): Promise<boolean> {
+  if (!fs.existsSync(dir)) return true;
+  if (!isEmptyDir(dir)) return false; // never delete a folder that has content
+  try {
+    await fs.promises.rmdir(dir);
+    return true;
+  } catch {
+    return false;
   }
 }

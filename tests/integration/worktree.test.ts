@@ -279,4 +279,31 @@ describe("worktree isolation", () => {
       expect(g(root, "branch", "--list", "oc/*").trim()).toBe("");
     },
   );
+
+  it.skipIf(!canLock)(
+    "merges cleanly when only the empty worktree folder stays held, and sweeps the folder later",
+    async () => {
+      const root = await repo();
+      const task = await call("delegate_task", { cwd: root, agent: "coder", task: "WRITE eta" });
+      const parent = path.dirname(task.worktree.path);
+      execFileSync("chattr", ["+i", parent]);
+      let merged: any;
+      try {
+        merged = await call("merge_task", { session_id: task.session_id, message: "eta" });
+      } finally {
+        execFileSync("chattr", ["-i", parent]);
+      }
+      expect(merged.merged).toBe(true);
+      expect(merged.cleanup_pending).toBeUndefined();
+      expect(merged.leftover_dir).toBe(task.worktree.path);
+      expect(g(root, "branch", "--list", "oc/*").trim()).toBe("");
+
+      const other = await call("delegate_task", { cwd: root, agent: "coder", task: "WRITE theta" });
+      await call("discard_task", { session_id: other.session_id });
+      for (let i = 0; i < 50 && fs.existsSync(task.worktree.path); i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(fs.existsSync(task.worktree.path)).toBe(false);
+    },
+  );
 });

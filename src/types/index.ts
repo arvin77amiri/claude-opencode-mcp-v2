@@ -169,4 +169,6 @@ export interface SessionWorktree extends TaskWorktree {
    * OpenCode service still held the directory on Windows). Retried later.
    */
   cleanupPending?: string;
+  /** Empty worktree folder still held open by another process; deleted by a later sweep. */
+  leftoverDir?: string;
 }

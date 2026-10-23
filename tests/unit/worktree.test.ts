@@ -7,6 +7,7 @@ import { BridgeError } from "../../src/errors.js";
 import {
   createTaskWorktree,
   mergeTaskWorktree,
+  removeLeftoverDir,
   removeTaskWorktree,
 } from "../../src/workspace/worktree.js";
 
@@ -222,4 +223,38 @@ describe("task worktrees", () => {
       expect(g(root, "branch", "--list", "oc/*").trim()).toBe("");
     },
   );
+
+  it.skipIf(!canLock)(
+    "removes worktree and branch when only the empty folder stays held, and reports it as leftover",
+    async () => {
+      const root = await repo();
+      const wt = await createTaskWorktree({ cwd: root, key: "ses_8", agent: "coder" });
+      fs.writeFileSync(path.join(wt.path, "a.txt"), "agent\n");
+      // Immutable parent: the folder's contents can go, the folder itself cannot (like EBUSY).
+      const parent = path.dirname(wt.path);
+      lock(parent);
+      let outcome: Awaited<ReturnType<typeof mergeTaskWorktree>>;
+      try {
+        outcome = await mergeTaskWorktree(wt, "leftover merge");
+      } finally {
+        unlock(parent);
+      }
+      expect(outcome.status).toBe("merged");
+      if (outcome.status === "merged") {
+        expect(outcome.cleanup).toEqual({ removed: true, leftoverDir: wt.path });
+      }
+      expect(fs.readdirSync(wt.path)).toEqual([]);
+      expect(g(root, "branch", "--list", "oc/*").trim()).toBe("");
+      expect(g(root, "worktree", "list").trim().split("\n")).toHaveLength(1);
+      expect(await removeLeftoverDir(wt.path)).toBe(true);
+      expect(fs.existsSync(wt.path)).toBe(false);
+    },
+  );
+
+  it("never deletes a leftover folder that has content", async () => {
+    const dir = await tempDir("co-wt-left-");
+    fs.writeFileSync(path.join(dir, "keep.txt"), "x");
+    expect(await removeLeftoverDir(dir)).toBe(false);
+    expect(fs.existsSync(path.join(dir, "keep.txt"))).toBe(true);
+  });
 });
