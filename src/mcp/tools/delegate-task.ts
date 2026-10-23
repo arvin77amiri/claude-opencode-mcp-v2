@@ -7,7 +7,7 @@ import { buildTaskPrompt } from "../../workspace/context.js";
 import { resolveWorkspaceHints } from "../../workspace/resolver.js";
 import type { AppContext } from "../execute.js";
 import { executeRun, startBackgroundRun } from "../execute.js";
-import { createDelegatedSession, defaultSessionTitle } from "../session-utils.js";
+import { createDelegatedSession, defaultSessionTitle, worktreeSummary } from "../session-utils.js";
 import { errorResult, jsonResult, type ToolExtra } from "../tool-utils.js";
 
 export const DELEGATE_TASK_DESCRIPTION = [
@@ -19,7 +19,9 @@ export const DELEGATE_TASK_DESCRIPTION = [
   "grants still enforce the bridge security policy (sensitive-file protection for edits, no git history changes for shell).",
   "Pass cwd explicitly: without it the workspace is CLAUDE_PROJECT_DIR or the directory the bridge was started in,",
   "which may be a parent of your project (the agent, including tester, then runs from there). The resolved cwd is returned.",
-  "Only one editing run at a time per workspace: an editing run on a cwd that overlaps one in progress fails with WORKSPACE_BUSY.",
+  "Editing runs (worktrees.enabled, the default) are isolated: each gets its own git worktree on branch oc/<agent>/<id>, created outside the repository from the current commit, so several coders can work in parallel and your checkout is never touched.",
+  "That requires cwd inside a git repository with at least one commit, on a branch, with no uncommitted changes to tracked files (else NOT_GIT_REPOSITORY / WORKSPACE_DIRTY).",
+  "The result's worktree block names the branch; review with get_diff, then merge_task (one squash commit on the base branch) or discard_task.",
   "At most limits.maxConcurrentRuns (default 3) runs execute at once; extra runs wait in a FIFO queue.",
   "With background: true the call returns at once with { session_id, status: running|queued }; fan out several agents this way and collect each result with wait_session.",
   "Returns { status, session_id, cwd, summary, findings, files_changed (count), changed_files [{ file, status, additions, deletions }], usage { cost, tokens } }.",
@@ -114,12 +116,13 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
         });
         // Fail before creating an OpenCode session that could never run.
         if (prepared.capabilities.canEdit) ctx.editorLocks.assertFree(prepared.workspace.cwd);
-        const hints = resolveWorkspaceHints(prepared.workspace.cwd, args.paths);
         const session = await createDelegatedSession(
           ctx,
           prepared,
           defaultSessionTitle(prepared.baseAgentName, args.task),
         );
+        // After session creation: an editing run now works in its worktree.
+        const hints = resolveWorkspaceHints(prepared.workspace.cwd, args.paths);
         const text = buildTaskPrompt({
           workspace: prepared.workspace,
           task: args.task,
@@ -137,9 +140,10 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
         });
         const timeoutMs = resolveExecutionTimeout(prepared.config, args.timeout);
         if (args.background) {
-          return jsonResult(
-            startBackgroundRun(ctx, { prepared, session, text, timeoutMs, requestId: rid }),
-          );
+          return jsonResult({
+            ...startBackgroundRun(ctx, { prepared, session, text, timeoutMs, requestId: rid }),
+            ...worktreeSummary(session),
+          });
         }
         const result = await executeRun(ctx, {
           prepared,
@@ -149,7 +153,10 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
           extra,
           requestId: rid,
         });
-        return jsonResult(result, { isError: result.status !== "completed" });
+        return jsonResult(
+          { ...result, ...worktreeSummary(session) },
+          { isError: result.status !== "completed" },
+        );
       } catch (error) {
         ctx.logger.error("delegate_task failed", {
           request_id: rid,

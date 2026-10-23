@@ -17,6 +17,7 @@ import { registerGetSession } from "./tools/get-session.js";
 import { registerListAgents } from "./tools/list-agents.js";
 import { registerSendMessage } from "./tools/send-message.js";
 import { registerWaitSession } from "./tools/wait-session.js";
+import { registerDiscardTask, registerMergeTask } from "./tools/worktree-tasks.js";
 
 export const SERVER_NAME = "claude-opencode-mcp";
 
@@ -38,8 +39,9 @@ export const SERVER_INSTRUCTIONS = [
   "Use delegate_task for one-shot work, or create_session + send_message for multi-step work that must keep context.",
   "Read-only agents: researcher, reviewer. Editing agent: coder. Test-running agent: tester.",
   "Agents do not see this conversation, so every task must be a self-contained brief. Always pass cwd (the absolute project root).",
-  "After a coder session, call get_diff to inspect exactly what changed, and have reviewer and/or tester check it before reporting back; do not rely on the coder's own summary.",
-  "Agents share your working tree: an editing run on a cwd where another one is in progress fails with WORKSPACE_BUSY, and you should not edit files yourself while a coder runs.",
+  "Editing runs are isolated: each coder works in its own git worktree on branch oc/<agent>/<id> outside the repository (the result's worktree block names it), so coders can run in parallel and the user's checkout is untouched. Editing needs a clean git repository with at least one commit.",
+  "After a coder session, call get_diff to inspect exactly what changed, and have reviewer and/or tester check it (pass the worktree's path as their cwd) before deciding; do not rely on the coder's own summary.",
+  "Then call merge_task to squash the work onto the base branch as one commit, or discard_task to drop it. Never leave worktrees unresolved without telling the user.",
   "Paths supplied to delegate_task are exploration hints, not boundaries.",
   "To run agents in parallel, call delegate_task with background: true for each (it returns a session_id at once), then wait_session on each id. At most limits.maxConcurrentRuns (default 3) runs execute at once; the rest queue.",
 ].join(" ");
@@ -83,6 +85,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   registerGetDiff(server, ctx);
   registerAbortSession(server, ctx);
   registerWaitSession(server, ctx);
+  registerMergeTask(server, ctx);
+  registerDiscardTask(server, ctx);
   registerListAgents(server, ctx);
 
   return server;

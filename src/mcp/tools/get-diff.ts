@@ -2,7 +2,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BridgeError } from "../../errors.js";
 import type { FileDiff } from "../../opencode/api-types.js";
-import { diffSinceBaseline, findGitRoot, lateGitBaseline } from "../../util/git.js";
+import {
+  diffSinceBaseline,
+  findGitRoot,
+  lateGitBaseline,
+  parseUnifiedDiff,
+  runGit,
+} from "../../util/git.js";
 import { requestId, truncate } from "../../util/text.js";
 import {
   type AppContext,
@@ -10,6 +16,7 @@ import {
   loadWorkspaceConfig,
   summarizeDiffEntry,
 } from "../execute.js";
+import { worktreeSummary } from "../session-utils.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
 
 function renderPatch(entry: FileDiff): string {
@@ -23,7 +30,7 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
     {
       title: "Inspect changes made in a session",
       description:
-        "Return the file changes made by a delegated session, as reported by OpenCode, or, when OpenCode reports none, a git diff against the workspace state captured when the session was created.",
+        "Return the file changes made by a delegated session. For a worktree (editing) session: the git diff of its branch against the commit it started from, committed or not, i.e. exactly what merge_task would apply (after a merge: the merged commit). Otherwise: OpenCode's session diff, or a git diff against the workspace state captured when the session was created.",
       inputSchema: {
         session_id: z
           .string()
@@ -37,7 +44,50 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
       const rid = requestId();
       try {
         const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
-        const config = await loadWorkspaceConfig(ctx, session.cwd);
+        const config = await loadWorkspaceConfig(ctx, session.originCwd ?? session.cwd);
+
+        const wt = session.worktree;
+        if (wt) {
+          if (wt.state === "discarded") {
+            throw new BridgeError(
+              "DIFF_UNAVAILABLE",
+              `Session ${session.id} was discarded; its worktree and branch are gone.`,
+              { details: { session_id: session.id } },
+            );
+          }
+          let git: { patch: string; files: unknown[]; truncated: boolean; note?: string };
+          if (wt.state === "merged" && wt.mergedCommit) {
+            const shown = await runGit(
+              wt.repoRoot,
+              ["diff", "--no-color", "--no-ext-diff", `${wt.mergedCommit}^`, wt.mergedCommit, "--"],
+              { timeoutMs: 20_000 },
+            );
+            if (shown.failed) {
+              throw new BridgeError(
+                "DIFF_UNAVAILABLE",
+                `Could not read merged commit ${wt.mergedCommit}: ${shown.stderr.trim()}`,
+              );
+            }
+            const t = truncate(shown.stdout, config.limits.diffChars);
+            git = { patch: t.text, files: parseUnifiedDiff(shown.stdout), truncated: t.truncated };
+          } else {
+            git = await diffSinceBaseline(
+              wt.path,
+              { head: wt.baseCommit, stashRef: null, untracked: [], unborn: false, dirty: false },
+              { maxPatchChars: config.limits.diffChars },
+            );
+          }
+          return jsonResult({
+            session_id: session.id,
+            cwd: session.cwd,
+            source: "worktree",
+            files: git.files,
+            diff: git.patch,
+            truncated: git.truncated,
+            ...(git.note ? { note: git.note } : {}),
+            ...worktreeSummary(session),
+          });
+        }
         const client = ctx.manager.existingClient();
 
         let entries: FileDiff[] = [];

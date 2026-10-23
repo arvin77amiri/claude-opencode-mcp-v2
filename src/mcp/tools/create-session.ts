@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prepareRun } from "../../opencode/setup.js";
 import { requestId } from "../../util/text.js";
 import type { AppContext } from "../execute.js";
-import { createDelegatedSession, defaultSessionTitle } from "../session-utils.js";
+import { createDelegatedSession, defaultSessionTitle, worktreeSummary } from "../session-utils.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
 
 export function registerCreateSession(server: McpServer, ctx: AppContext): void {
@@ -67,6 +67,7 @@ export function registerCreateSession(server: McpServer, ctx: AppContext): void 
           title: session.title,
           status: session.status,
           can_edit: session.canEdit ?? prepared.capabilities.canEdit,
+          ...worktreeSummary(session),
           can_run_bash: session.canRunBash ?? prepared.capabilities.canRunBash,
           created_at: session.createdAt,
         });

@@ -1,3 +1,5 @@
+import type { TaskWorktree } from "../workspace/worktree.js";
+
 /** The resolved, validated workspace a delegated agent operates in. */
 export interface AgentWorkspace {
   /** Canonical (realpath) absolute directory the agent works in. */
@@ -50,6 +52,10 @@ export interface AgentSession {
   durationMs?: number;
   /** Cost and tokens added up over every run of the session. */
   usage?: RunUsage;
+  /** Workspace the orchestrator asked for; differs from `cwd` when the session runs in a worktree. */
+  originCwd?: string;
+  /** Isolated worktree of an editing session (see merge_task / discard_task). */
+  worktree?: SessionWorktree;
   /** Git state of the workspace when the session was created; basis of the get_diff fallback. */
   gitBaseline?: import("../util/git.js").GitBaseline;
 }
@@ -151,4 +157,11 @@ export interface DiffResult {
   diff: string;
   truncated: boolean;
   note?: string;
+}
+
+/** A session's task worktree plus its lifecycle state. */
+export interface SessionWorktree extends TaskWorktree {
+  state: "active" | "merged" | "discarded";
+  /** Commit created on the base branch by merge_task. */
+  mergedCommit?: string;
 }

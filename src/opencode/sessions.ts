@@ -148,6 +148,8 @@ export function createSessionRecord(input: {
   model: string | null;
   title: string | null;
   gitBaseline?: AgentSession["gitBaseline"];
+  worktree?: AgentSession["worktree"];
+  originCwd?: string;
 }): AgentSession {
   const now = new Date().toISOString();
   return {
@@ -161,6 +163,8 @@ export function createSessionRecord(input: {
     model: input.model,
     title: input.title,
     ...(input.gitBaseline ? { gitBaseline: input.gitBaseline } : {}),
+    ...(input.worktree ? { worktree: input.worktree } : {}),
+    ...(input.originCwd ? { originCwd: input.originCwd } : {}),
     status: "pending",
     createdAt: now,
     updatedAt: now,

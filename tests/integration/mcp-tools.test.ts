@@ -35,6 +35,8 @@ async function setupApp(options: {
   stateDir = await tempDir();
   const config = BridgeConfigSchema.parse({
     opencode: { url: baseUrl, autoStart: false },
+    // These suites cover the shared-workspace mode; worktree isolation has its own suite.
+    worktrees: { enabled: false },
     ...(options.configOverrides ?? {}),
   });
   const logger = createLogger({ level: "silent" });
@@ -100,9 +102,11 @@ describe("MCP tool surface", () => {
       "abort_session",
       "create_session",
       "delegate_task",
+      "discard_task",
       "get_diff",
       "get_session",
       "list_agents",
+      "merge_task",
       "send_message",
       "wait_session",
     ]);

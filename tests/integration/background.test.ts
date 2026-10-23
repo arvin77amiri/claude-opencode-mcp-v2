@@ -53,6 +53,8 @@ async function setupApp(options: {
   const stateDir = await tempDir();
   const config = BridgeConfigSchema.parse({
     opencode: { url: baseUrl, autoStart: false },
+    // These suites cover the shared-workspace mode; worktree isolation has its own suite.
+    worktrees: { enabled: false },
     limits: { maxConcurrentRuns: options.maxConcurrentRuns ?? 3 },
   });
   const logger = createLogger({ level: "silent" });

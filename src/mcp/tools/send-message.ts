@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveExecutionTimeout } from "../../config/config.js";
-import { effectivePermissionOverride, prepareRun } from "../../opencode/setup.js";
+import { effectivePermissionOverride } from "../../opencode/setup.js";
 import { requestId } from "../../util/text.js";
 import { buildTaskPrompt } from "../../workspace/context.js";
 import type { AppContext } from "../execute.js";
@@ -11,6 +11,7 @@ import {
   executeRun,
   startBackgroundRun,
 } from "../execute.js";
+import { prepareSessionRun, worktreeSummary } from "../session-utils.js";
 import { errorResult, jsonResult, type ToolExtra } from "../tool-utils.js";
 
 export function registerSendMessage(server: McpServer, ctx: AppContext): void {
@@ -70,9 +71,7 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
       try {
         const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
         assertNoActiveBackgroundRun(ctx, session.id);
-        const prepared = await prepareRun(ctx, {
-          cwd: session.cwd,
-          agent: session.agent,
+        const prepared = await prepareSessionRun(ctx, session, {
           model: session.model ?? undefined,
           allowEdits: args.allow_edits ?? session.canEdit,
           allowBash: args.allow_bash ?? session.canRunBash,
@@ -106,15 +105,16 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
         ctx.registry.upsert(updated);
 
         if (args.background) {
-          return jsonResult(
-            startBackgroundRun(ctx, {
+          return jsonResult({
+            ...startBackgroundRun(ctx, {
               prepared,
               session: updated,
               text,
               timeoutMs,
               requestId: rid,
             }),
-          );
+            ...worktreeSummary(updated),
+          });
         }
 
         const result = await executeRun(ctx, {
@@ -125,7 +125,10 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
           extra,
           requestId: rid,
         });
-        return jsonResult(result, { isError: result.status !== "completed" });
+        return jsonResult(
+          { ...result, ...worktreeSummary(updated) },
+          { isError: result.status !== "completed" },
+        );
       } catch (error) {
         ctx.logger.error("send_message failed", {
           request_id: rid,

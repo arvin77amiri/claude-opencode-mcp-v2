@@ -317,8 +317,10 @@ again. `timeout: 0` only checks.
 
 At most `limits.maxConcurrentRuns` (default 3) delegated runs execute at once, blocking
 and background together. Extra runs are **queued** in FIFO order, not rejected; a blocking
-call simply waits its turn. A queued coder already reserves its workspace, so a second
-editing run on the same `cwd` still fails fast with `WORKSPACE_BUSY`. `abort_session`
+call simply waits its turn. With worktree isolation (the default) every coder has its own
+worktree, so coders on the same repository run in parallel; with `worktrees.enabled: false`
+a queued coder reserves its workspace and a second editing run on the same `cwd` fails fast
+with `WORKSPACE_BUSY`. `abort_session`
 cancels a queued run before it reaches OpenCode. When the bridge shuts down it interrupts
 its background runs, so no agent keeps working unsupervised (the OpenCode Desktop service
 outlives the bridge).
@@ -328,10 +330,11 @@ outlives the bridge).
 - `usage` is `{ cost, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens,
   cache_write_tokens }` added up over the run's assistant messages, as OpenCode reports them
   (`cost` in USD; 0 for free models). It is omitted when OpenCode reports no usage.
-- Only one editing run (`coder`, or any agent with `allow_edits: true`) at a time per workspace:
-  another editing run whose `cwd` is the same directory, a parent or a child fails with
-  `WORKSPACE_BUSY` (retryable) instead of overwriting it. Read-only runs are not affected. The
-  guard is per bridge process, so it does not see a second Claude Code session.
+- Editing runs (`coder`, or any agent with `allow_edits: true`) are isolated in a git worktree;
+  the result carries a `worktree` block (`state`, `branch`, `base_branch`, `repo`, `path`).
+  See [Worktree isolation](#worktree-isolation). With `worktrees.enabled: false`, only one
+  editing run at a time per workspace: another one whose `cwd` overlaps fails with
+  `WORKSPACE_BUSY` (retryable).
 
 - `paths` are exploration hints, not a boundary — the agent may inspect the
   whole workspace.
@@ -369,10 +372,41 @@ background runs, plus live OpenCode status
 (`opencode.status` is `idle`, `busy` or `retry` when a server is running), and
 `usage` added up over every run of the session.
 
+### Worktree isolation
+
+Every editing task runs in its **own git worktree on its own branch**
+(`oc/<agent>/<id>`), created **outside the repository** (under the bridge state
+directory, `~/.local/state/claude-opencode-mcp/worktrees`; override with
+`CLAUDE_OPENCODE_WORKTREE_DIR`) from the commit the current branch is on. Your
+checkout is never touched while the agent works, and several coders can work on
+one repository at the same time.
+
+- Editing requires `cwd` inside a git repository with at least one commit, on a
+  branch, with **no uncommitted changes to tracked files**; otherwise the call fails
+  with `NOT_GIT_REPOSITORY` or `WORKSPACE_DIRTY`. Untracked files are fine.
+  Read-only agents run in place as before, in or outside git.
+- `send_message` keeps working in the same worktree. A session created without
+  edits cannot be granted edits later; start a new `delegate_task`.
+- Review with `get_diff`; to have `reviewer`/`tester` check the work, pass the
+  worktree `path` as their `cwd`.
+- **`merge_task`** `{ session_id, message? }` squashes everything on the task
+  branch (committed or not) into **one commit** on the base branch, then deletes
+  the worktree and branch. The bridge makes the commit; agents still cannot run
+  `git commit`. It requires your checkout to still be on the base branch with no
+  uncommitted changes to tracked files. On conflict it returns `MERGE_CONFLICT`,
+  restores your checkout exactly and keeps the worktree.
+- **`discard_task`** `{ session_id }` deletes the worktree and branch.
+
+Disable with `"worktrees": { "enabled": false }` to get the older shared-workspace
+behavior.
+
 ### `get_diff`
 
 Returns the changes associated with a session:
 
+- For a worktree session, the git diff of its branch against the commit it started
+  from (`source: "worktree"`) — exactly what `merge_task` would apply; after a
+  merge, the merged commit. Otherwise:
 - OpenCode's own session diff when the server reports one (`source: "opencode"`), otherwise
 - a **git diff against a baseline captured when the session was created**
   (`source: "git"`), so pre-existing uncommitted work is not attributed to the
@@ -534,6 +568,7 @@ Extra file: `CLAUDE_OPENCODE_CONFIG=/path/to/config.json` (highest precedence).
     "diffChars": 60000,
     "maxConcurrentRuns": 3
   },
+  "worktrees": { "enabled": true },
   "agents": {
     "researcher": { "model": "deepseek/deepseek-v4-pro" }
   }

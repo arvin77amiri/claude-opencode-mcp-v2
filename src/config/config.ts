@@ -93,6 +93,16 @@ export const BridgeConfigSchema = z.object({
       maxConcurrentRuns: z.number().int().min(1).max(32).default(3),
     })
     .prefault({}),
+  worktrees: z
+    .object({
+      /**
+       * Run every editing task in its own git worktree + branch (outside the repo),
+       * merged with merge_task or dropped with discard_task. Editing then requires a
+       * clean git repository with at least one commit.
+       */
+      enabled: z.boolean().default(true),
+    })
+    .prefault({}),
   /** Per-agent overrides keyed by agent name. */
   agents: z.record(z.string(), AgentOverrideSchema).prefault({}),
 });
