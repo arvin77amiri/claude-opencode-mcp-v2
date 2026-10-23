@@ -6,6 +6,7 @@ import { runInit } from "./cli/init.js";
 import { runInstallAgents } from "./cli/install-agents.js";
 import { loadConfig } from "./config/config.js";
 import { createMcpServer, SERVER_VERSION } from "./mcp/server.js";
+import { readDesktopService } from "./opencode/desktop-service.js";
 import { OpenCodeManager } from "./opencode/manager.js";
 import { SessionRegistry } from "./opencode/sessions.js";
 import { prepareRun } from "./opencode/setup.js";
@@ -66,20 +67,32 @@ async function runServer(): Promise<void> {
   // Never orphan an OpenCode child, even if we exit through an unexpected path.
   process.on("exit", () => manager.killAllSync());
 
-  // Desktop mode warms up too: it only connects to the running app (never spawns), and an
-  // early warning tells the user the app is closed before the first delegation fails.
   const desktop = globalConfig.opencode.desktop;
-  if (desktop || (globalConfig.opencode.autoStart && !globalConfig.opencode.url)) {
+  if (desktop) {
+    // Desktop mode: only report whether the app is reachable. Connecting happens per run
+    // (the app may be opened or restarted later) and never spawns an engine.
+    try {
+      const service = readDesktopService({ file: globalConfig.opencode.serviceFile, env });
+      logger.info("OpenCode Desktop service found", {
+        url: service.url,
+        pid: service.pid,
+        version: service.version,
+      });
+    } catch (error) {
+      logger.warn("OpenCode Desktop service not available yet", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  } else if (globalConfig.opencode.autoStart && !globalConfig.opencode.url) {
     setImmediate(() => {
       void (async () => {
         try {
           await prepareRun({ manager, logger, env, globalConfig }, {});
           logger.info("warmed up OpenCode for the default workspace");
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (desktop)
-            logger.warn("OpenCode Desktop service not available yet", { error: message });
-          else logger.debug("OpenCode warmup skipped", { error: message });
+          logger.debug("OpenCode warmup skipped", {
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       })();
     });
