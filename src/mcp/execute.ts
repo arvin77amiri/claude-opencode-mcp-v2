@@ -11,7 +11,9 @@ import type { AgentSession, DelegateResult, DiffFileSummary } from "../types/ind
 import { diffSinceBaseline, lateGitBaseline } from "../util/git.js";
 import type { Logger } from "../util/logger.js";
 import { truncate } from "../util/text.js";
+import type { BackgroundRuns } from "./background.js";
 import type { EditorLocks } from "./editor-locks.js";
+import type { RunSlots } from "./run-slots.js";
 import { createProgressReporter, type ToolExtra } from "./tool-utils.js";
 
 export interface AppContext {
@@ -22,6 +24,10 @@ export interface AppContext {
   env: NodeJS.ProcessEnv;
   stateDir: string;
   editorLocks: EditorLocks;
+  /** Cap on concurrent runs (limits.maxConcurrentRuns); extra runs queue. */
+  runSlots: RunSlots;
+  /** Runs started with `background: true`. */
+  background: BackgroundRuns;
   /** Override per-workspace config loading (tests/embedding). */
   loadProjectConfig?: (cwd: string) => Promise<LoadedConfig>;
 }
@@ -40,6 +46,8 @@ export interface ExecuteRunInput {
   timeoutMs: number;
   extra: ToolExtra;
   requestId: string;
+  /** Called once the run holds a slot and starts executing (background bookkeeping). */
+  onStarted?: () => void;
 }
 
 export async function executeRun(ctx: AppContext, input: ExecuteRunInput): Promise<DelegateResult> {
@@ -52,13 +60,28 @@ export async function executeRun(ctx: AppContext, input: ExecuteRunInput): Promi
     cwd: session.cwd,
   });
 
+  // The editor lock is taken before queueing, so a queued coder already reserves its
+  // workspace and a second editing request fails fast with WORKSPACE_BUSY.
   const releaseEditor = prepared.capabilities.canEdit
     ? ctx.editorLocks.acquire(session.cwd, session.id)
     : null;
-  ctx.registry.update(session.id, { status: "running", lastError: undefined });
-  ctx.manager.beginRun(prepared.serverKey, session.id);
+  let releaseSlot: (() => void) | null = null;
+  let begun = false;
 
   try {
+    releaseSlot = await ctx.runSlots.acquire(session.id, input.extra.signal, (position) => {
+      ctx.registry.update(session.id, { status: "queued", lastError: undefined });
+      runLogger.info("run queued: concurrency limit reached", {
+        position,
+        limit: ctx.runSlots.limit,
+      });
+      void progress?.({ progress: 0, message: `queued (position ${position})` });
+    });
+    ctx.registry.update(session.id, { status: "running", lastError: undefined });
+    ctx.manager.beginRun(prepared.serverKey, session.id);
+    begun = true;
+    input.onStarted?.();
+
     // Permissions and agent are per session in OpenCode 2.x; re-sync them so
     // send_message overrides (allow_edits / allow_bash) take effect.
     await prepared.client.patchSession(session.id, { permissions: prepared.permissions });
@@ -139,7 +162,8 @@ export async function executeRun(ctx: AppContext, input: ExecuteRunInput): Promi
     });
     throw error;
   } finally {
-    ctx.manager.endRun(prepared.serverKey, session.id);
+    if (begun) ctx.manager.endRun(prepared.serverKey, session.id);
+    releaseSlot?.();
     releaseEditor?.();
   }
 }
@@ -198,4 +222,45 @@ export function assertSession(session: AgentSession | null, sessionId: string): 
     });
   }
   return session;
+}
+
+/**
+ * Start `executeRun` in the background and describe the started run. The editor lock and
+ * the queue slot are taken synchronously inside `executeRun`, before this returns.
+ */
+export function startBackgroundRun(
+  ctx: AppContext,
+  input: Omit<ExecuteRunInput, "extra" | "onStarted">,
+): Record<string, unknown> {
+  const { session, prepared } = input;
+  ctx.background.start(session.id, (hooks) =>
+    executeRun(ctx, {
+      ...input,
+      // No MCP request outlives this call: no progress token, cancellation via the hooks.
+      extra: { signal: hooks.signal } as unknown as ToolExtra,
+      onStarted: hooks.markRunning,
+    }),
+  );
+  const position = ctx.runSlots.position(session.id);
+  return {
+    session_id: session.id,
+    status: position ? "queued" : "running",
+    background: true,
+    ...(position ? { queue_position: position } : {}),
+    agent: session.agent,
+    cwd: session.cwd,
+    model: prepared.modelString,
+    next: "Call wait_session with this session_id to get the result (it returns early with status running if the run is not done yet). abort_session cancels it.",
+  };
+}
+
+/** Refuse a new run on a session whose background run is still queued or running. */
+export function assertNoActiveBackgroundRun(ctx: AppContext, sessionId: string): void {
+  if (ctx.background.isActive(sessionId)) {
+    throw new BridgeError(
+      "INVALID_ARGUMENT",
+      `Session ${sessionId} already has a background run in progress. Call wait_session first, or abort_session to cancel it.`,
+      { details: { session_id: sessionId }, retryable: true },
+    );
+  }
 }

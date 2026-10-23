@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `background: true` on `delegate_task` and `send_message`: return at once with
+  `{ session_id, status: running|queued }` and keep the run going in the bridge. New
+  `wait_session` tool returns the run's result (or `done: false` after its timeout).
+- `limits.maxConcurrentRuns` (default 3): cap on runs executing at once, blocking and
+  background together; extra runs queue FIFO (`status: "queued"`) instead of failing.
+  `abort_session` cancels queued runs; bridge shutdown interrupts background runs.
 - `opencode.desktop`: connect to the OpenCode Desktop background service by reading its
   `service.json` (url, pid, password) before every run. Reconnects after an app restart,
   fails with a clear `OPENCODE_UNAVAILABLE` when the app is closed, and never spawns an

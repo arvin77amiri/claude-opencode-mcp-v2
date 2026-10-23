@@ -35,7 +35,7 @@ The items are ordered roughly by value for the orchestrator relative to effort.
 
 ## 2. Orchestration
 
-### 2.1 Asynchronous mode
+### 2.1 Asynchronous mode — done
 - **Why:** real fan-out (reviewer + tester in parallel, several researchers) depends today on Claude Code
   moving the call to the background after 2 minutes. An explicit asynchronous mode is more predictable
   and does not hold tool-call slots.

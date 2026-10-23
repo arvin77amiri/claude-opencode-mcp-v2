@@ -93,6 +93,7 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
           ...(session.durationMs !== undefined ? { duration_ms: session.durationMs } : {}),
           ...(session.usage ? { usage: session.usage } : {}),
           ...(session.lastMessageID ? { last_message_id: session.lastMessageID } : {}),
+          ...backgroundInfo(ctx, session.id),
           opencode: live
             ? {
                 live: true,
@@ -117,4 +118,20 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
       }
     },
   );
+}
+
+/** Background run state for get_session (the full result is returned by wait_session). */
+function backgroundInfo(ctx: AppContext, sessionId: string): Record<string, unknown> {
+  const snapshot = ctx.background.snapshot(sessionId);
+  if (!snapshot) return {};
+  const position = ctx.runSlots.position(sessionId);
+  return {
+    background: {
+      state: snapshot.state,
+      ...(position ? { queue_position: position } : {}),
+      started_at: snapshot.started_at,
+      finished_at: snapshot.finished_at,
+      ...(snapshot.error ? { error: snapshot.error } : {}),
+    },
+  };
 }

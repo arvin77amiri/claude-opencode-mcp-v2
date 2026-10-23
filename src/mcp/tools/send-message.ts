@@ -5,7 +5,12 @@ import { effectivePermissionOverride, prepareRun } from "../../opencode/setup.js
 import { requestId } from "../../util/text.js";
 import { buildTaskPrompt } from "../../workspace/context.js";
 import type { AppContext } from "../execute.js";
-import { assertSession, executeRun } from "../execute.js";
+import {
+  assertNoActiveBackgroundRun,
+  assertSession,
+  executeRun,
+  startBackgroundRun,
+} from "../execute.js";
 import { errorResult, jsonResult, type ToolExtra } from "../tool-utils.js";
 
 export function registerSendMessage(server: McpServer, ctx: AppContext): void {
@@ -14,7 +19,7 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
     {
       title: "Send a follow-up message to a session",
       description:
-        "Continue an existing delegated session with another message. The agent keeps its previous context and its permission level; allow_edits / allow_bash can change that level for this and later messages. Returns the same result as delegate_task; an editing run fails with WORKSPACE_BUSY while another one is in progress on an overlapping cwd.",
+        "Continue an existing delegated session with another message. The agent keeps its previous context and its permission level; allow_edits / allow_bash can change that level for this and later messages. Returns the same result as delegate_task; an editing run fails with WORKSPACE_BUSY while another one is in progress on an overlapping cwd. With background: true it returns at once; collect the result with wait_session.",
       inputSchema: {
         session_id: z
           .string()
@@ -41,6 +46,12 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
           .describe(
             "Grant (true) or revoke (false) shell commands from this message onward. Omit to keep the session's current level.",
           ),
+        background: z
+          .boolean()
+          .optional()
+          .describe(
+            "Return immediately with { session_id, status: running|queued } and keep the run going in the bridge; collect the result with wait_session. Use it to run several agents in parallel.",
+          ),
       },
       annotations: { openWorldHint: true },
     },
@@ -51,12 +62,14 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
         timeout?: number;
         allow_edits?: boolean;
         allow_bash?: boolean;
+        background?: boolean;
       },
       extra: ToolExtra,
     ) => {
       const rid = requestId();
       try {
         const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
+        assertNoActiveBackgroundRun(ctx, session.id);
         const prepared = await prepareRun(ctx, {
           cwd: session.cwd,
           agent: session.agent,
@@ -87,7 +100,22 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
           canEdit: prepared.capabilities.canEdit,
           canRunBash: prepared.capabilities.canRunBash,
         };
+        if (args.background && prepared.capabilities.canEdit) {
+          ctx.editorLocks.assertFree(prepared.workspace.cwd);
+        }
         ctx.registry.upsert(updated);
+
+        if (args.background) {
+          return jsonResult(
+            startBackgroundRun(ctx, {
+              prepared,
+              session: updated,
+              text,
+              timeoutMs,
+              requestId: rid,
+            }),
+          );
+        }
 
         const result = await executeRun(ctx, {
           prepared,

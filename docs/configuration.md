@@ -49,7 +49,8 @@ the offending fields.
   "limits": {
     "summaryChars": 16000,
     "sessionChars": 20000,
-    "diffChars": 60000
+    "diffChars": 60000,
+    "maxConcurrentRuns": 3
   },
   "agents": {
     "coder": {
@@ -119,6 +120,7 @@ the offending fields.
 | `summaryChars` | `16000` | Maximum characters of agent output returned from a run. |
 | `sessionChars` | `20000` | Maximum characters of the last summary returned by `get_session`. |
 | `diffChars` | `60000` | Maximum characters returned by `get_diff`. |
+| `maxConcurrentRuns` | `3` | Delegated runs executing at once, blocking and background together (1-32). Extra runs wait in a FIFO queue (`status: "queued"`) instead of failing. Read from the global config at bridge start. |
 
 ### `agents`
 

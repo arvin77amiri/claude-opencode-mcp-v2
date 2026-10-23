@@ -89,6 +89,8 @@ export const BridgeConfigSchema = z.object({
       summaryChars: z.number().int().positive().default(16_000),
       sessionChars: z.number().int().positive().default(20_000),
       diffChars: z.number().int().positive().default(60_000),
+      /** Delegated runs executing at once (blocking + background); extra runs queue FIFO. */
+      maxConcurrentRuns: z.number().int().min(1).max(32).default(3),
     })
     .prefault({}),
   /** Per-agent overrides keyed by agent name. */

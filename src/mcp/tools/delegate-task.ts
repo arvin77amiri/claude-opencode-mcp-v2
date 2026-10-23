@@ -6,7 +6,7 @@ import { requestId } from "../../util/text.js";
 import { buildTaskPrompt } from "../../workspace/context.js";
 import { resolveWorkspaceHints } from "../../workspace/resolver.js";
 import type { AppContext } from "../execute.js";
-import { executeRun } from "../execute.js";
+import { executeRun, startBackgroundRun } from "../execute.js";
 import { createDelegatedSession, defaultSessionTitle } from "../session-utils.js";
 import { errorResult, jsonResult, type ToolExtra } from "../tool-utils.js";
 
@@ -20,6 +20,8 @@ export const DELEGATE_TASK_DESCRIPTION = [
   "Pass cwd explicitly: without it the workspace is CLAUDE_PROJECT_DIR or the directory the bridge was started in,",
   "which may be a parent of your project (the agent, including tester, then runs from there). The resolved cwd is returned.",
   "Only one editing run at a time per workspace: an editing run on a cwd that overlaps one in progress fails with WORKSPACE_BUSY.",
+  "At most limits.maxConcurrentRuns (default 3) runs execute at once; extra runs wait in a FIFO queue.",
+  "With background: true the call returns at once with { session_id, status: running|queued }; fan out several agents this way and collect each result with wait_session.",
   "Returns { status, session_id, cwd, summary, findings, files_changed (count), changed_files [{ file, status, additions, deletions }], usage { cost, tokens } }.",
 ].join(" ");
 
@@ -78,6 +80,12 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
           .describe(
             "Grant (true) or revoke (false) shell commands for this call. Omit to use the agent's default.",
           ),
+        background: z
+          .boolean()
+          .optional()
+          .describe(
+            "Return immediately with { session_id, status: running|queued } and keep the run going in the bridge; collect the result with wait_session. Use it to run several agents in parallel.",
+          ),
       },
       annotations: { openWorldHint: true },
     },
@@ -91,6 +99,7 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
         timeout?: number;
         allow_edits?: boolean;
         allow_bash?: boolean;
+        background?: boolean;
       },
       extra: ToolExtra,
     ) => {
@@ -127,6 +136,11 @@ export function registerDelegateTask(server: McpServer, ctx: AppContext): void {
             : {}),
         });
         const timeoutMs = resolveExecutionTimeout(prepared.config, args.timeout);
+        if (args.background) {
+          return jsonResult(
+            startBackgroundRun(ctx, { prepared, session, text, timeoutMs, requestId: rid }),
+          );
+        }
         const result = await executeRun(ctx, {
           prepared,
           session,

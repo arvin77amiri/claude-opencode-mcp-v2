@@ -16,7 +16,14 @@ export interface AgentWorkspace {
   projectID?: string;
 }
 
-export type SessionStatus = "pending" | "running" | "completed" | "failed" | "aborted" | "timeout";
+export type SessionStatus =
+  | "pending"
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "aborted"
+  | "timeout";
 
 /** A delegated task/agent session tracked by the bridge. */
 export interface AgentSession {

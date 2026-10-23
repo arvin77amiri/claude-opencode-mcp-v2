@@ -5,8 +5,10 @@ import type { LoadedConfig, ResolvedConfig } from "../config/config.js";
 import type { OpenCodeManager } from "../opencode/manager.js";
 import type { SessionRegistry } from "../opencode/sessions.js";
 import type { Logger } from "../util/logger.js";
+import { BackgroundRuns } from "./background.js";
 import { EditorLocks } from "./editor-locks.js";
 import type { AppContext } from "./execute.js";
+import { RunSlots } from "./run-slots.js";
 import { registerAbortSession } from "./tools/abort-session.js";
 import { registerCreateSession } from "./tools/create-session.js";
 import { registerDelegateTask } from "./tools/delegate-task.js";
@@ -14,6 +16,7 @@ import { registerGetDiff } from "./tools/get-diff.js";
 import { registerGetSession } from "./tools/get-session.js";
 import { registerListAgents } from "./tools/list-agents.js";
 import { registerSendMessage } from "./tools/send-message.js";
+import { registerWaitSession } from "./tools/wait-session.js";
 
 export const SERVER_NAME = "claude-opencode-mcp";
 
@@ -38,6 +41,7 @@ export const SERVER_INSTRUCTIONS = [
   "After a coder session, call get_diff to inspect exactly what changed, and have reviewer and/or tester check it before reporting back; do not rely on the coder's own summary.",
   "Agents share your working tree: an editing run on a cwd where another one is in progress fails with WORKSPACE_BUSY, and you should not edit files yourself while a coder runs.",
   "Paths supplied to delegate_task are exploration hints, not boundaries.",
+  "To run agents in parallel, call delegate_task with background: true for each (it returns a session_id at once), then wait_session on each id. At most limits.maxConcurrentRuns (default 3) runs execute at once; the rest queue.",
 ].join(" ");
 
 export interface CreateMcpServerOptions {
@@ -49,6 +53,8 @@ export interface CreateMcpServerOptions {
   stateDir: string;
   /** Override per-workspace config loading (tests/embedding). */
   loadProjectConfig?: (cwd: string) => Promise<LoadedConfig>;
+  /** Background run tracker; pass one to stop its runs on shutdown. */
+  background?: BackgroundRuns;
 }
 
 export function createMcpServer(options: CreateMcpServerOptions): McpServer {
@@ -60,6 +66,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     env: options.env ?? process.env,
     stateDir: options.stateDir,
     editorLocks: new EditorLocks(),
+    runSlots: new RunSlots(options.globalConfig.limits.maxConcurrentRuns),
+    background: options.background ?? new BackgroundRuns(options.logger),
     ...(options.loadProjectConfig ? { loadProjectConfig: options.loadProjectConfig } : {}),
   };
 
@@ -74,6 +82,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   registerGetSession(server, ctx);
   registerGetDiff(server, ctx);
   registerAbortSession(server, ctx);
+  registerWaitSession(server, ctx);
   registerListAgents(server, ctx);
 
   return server;

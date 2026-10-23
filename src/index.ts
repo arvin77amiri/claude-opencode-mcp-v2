@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { runInit } from "./cli/init.js";
 import { runInstallAgents } from "./cli/install-agents.js";
 import { loadConfig } from "./config/config.js";
+import { BackgroundRuns } from "./mcp/background.js";
 import { createMcpServer, SERVER_VERSION } from "./mcp/server.js";
 import { readDesktopService } from "./opencode/desktop-service.js";
 import { OpenCodeManager } from "./opencode/manager.js";
@@ -30,13 +31,29 @@ async function runServer(): Promise<void> {
 
   const registry = new SessionRegistry(path.join(stateDir, "sessions.json"), logger);
   const manager = new OpenCodeManager({ logger, env });
-  const server = createMcpServer({ logger, manager, registry, globalConfig, env, stateDir });
+  const background = new BackgroundRuns(logger);
+  const server = createMcpServer({
+    logger,
+    manager,
+    registry,
+    globalConfig,
+    env,
+    stateDir,
+    background,
+  });
 
   let shuttingDown = false;
   const shutdown = async (reason: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info("shutting down", { reason });
+    try {
+      // Interrupt background agents first, while the OpenCode connection still exists:
+      // the Desktop service outlives the bridge and would keep them running unsupervised.
+      await background.abortAll();
+    } catch {
+      // ignore
+    }
     try {
       await server.close();
     } catch {

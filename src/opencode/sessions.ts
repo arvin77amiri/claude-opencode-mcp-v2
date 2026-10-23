@@ -42,7 +42,8 @@ export class SessionRegistry {
       if (!session?.id) continue;
       const updated = Date.parse(session.updatedAt ?? session.createdAt ?? "");
       if (Number.isFinite(updated) && updated < cutoff) continue;
-      if (session.status === "running" && (!Number.isFinite(updated) || updated < staleCutoff)) {
+      const inFlight = session.status === "running" || session.status === "queued";
+      if (inFlight && (!Number.isFinite(updated) || updated < staleCutoff)) {
         // The bridge process that owned this run is gone; do not report a
         // forever-running session.
         session.status = "failed";

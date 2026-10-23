@@ -388,9 +388,10 @@ export async function runPrompt(input: RunPromptInput): Promise<RunResult> {
     resolveOutcome?.(outcome);
   };
 
+  let pendingInterrupt: Promise<void> | null = null;
   const onSignalAbort = () => {
     abortedByCaller = true;
-    void interruptSession();
+    pendingInterrupt = interruptSession();
     settle({ kind: "aborted" });
   };
 
@@ -538,6 +539,9 @@ export async function runPrompt(input: RunPromptInput): Promise<RunResult> {
   const durationMs = Date.now() - startedAt;
 
   if (outcome.kind === "aborted" || abortedByCaller) {
+    // Let the interrupt reach OpenCode before reporting: on bridge shutdown the process
+    // exits right after, and the Desktop service would otherwise keep the agent running.
+    if (pendingInterrupt) await pendingInterrupt;
     throw new BridgeError("AGENT_ABORTED", "Delegated run was cancelled by the caller.");
   }
 

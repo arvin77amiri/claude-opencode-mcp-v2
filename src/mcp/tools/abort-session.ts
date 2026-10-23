@@ -25,6 +25,14 @@ export function registerAbortSession(server: McpServer, ctx: AppContext): void {
       const rid = requestId();
       try {
         const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
+        // A queued background run never reached OpenCode: cancelling it is enough.
+        const queued = ctx.runSlots.position(session.id) !== null;
+        const backgroundAborted = ctx.background.abort(session.id);
+        if (queued && backgroundAborted) {
+          ctx.registry.setStatus(session.id, "aborted");
+          ctx.logger.info("cancelled queued background run", { session_id: session.id });
+          return jsonResult({ session_id: session.id, aborted: true, was: "queued" });
+        }
         const client = ctx.manager.existingClient();
         if (!client) {
           ctx.registry.setStatus(session.id, "aborted");

@@ -55,8 +55,11 @@ editing and test execution. The bridge is deliberately thin.
 
 ## Features
 
-- **Seven focused MCP tools** — `delegate_task`, `create_session`,
-  `send_message`, `get_session`, `get_diff`, `abort_session`, `list_agents`.
+- **Eight focused MCP tools** — `delegate_task`, `create_session`,
+  `send_message`, `get_session`, `get_diff`, `abort_session`, `list_agents`,
+  `wait_session`.
+- **Parallel agents** — `background: true` returns at once; `wait_session` collects
+  the result. At most `limits.maxConcurrentRuns` (default 3) run together; the rest queue.
 - **Same worktree** — the delegated OpenCode server runs with your project as
   its working directory; the agent reads and edits the real files.
 - **Persistent sessions** — follow-up messages keep the agent's context across
@@ -298,6 +301,28 @@ Run one task in a fresh session and wait for the agent's answer.
 Returns `{ status, session_id, agent, cwd, model, summary, findings,
 files_changed, changed_files, duration_ms, truncated, usage?, error? }`.
 
+With `"background": true` (also on `send_message`) the call returns immediately with
+`{ session_id, status: "running" | "queued", queue_position? }` and the run continues in
+the bridge. Collect the result with `wait_session`. This is how to run several agents in
+parallel without holding a tool call open for each one.
+
+### `wait_session`
+
+`{ session_id, timeout? }` (default 120 s, max 10 min). Returns the same object as
+`delegate_task` with `done: true` once the background run has finished, or
+`{ done: false, status: "running" | "queued" }` when `timeout` elapses first: call it
+again. `timeout: 0` only checks.
+
+### Concurrency limit
+
+At most `limits.maxConcurrentRuns` (default 3) delegated runs execute at once, blocking
+and background together. Extra runs are **queued** in FIFO order, not rejected; a blocking
+call simply waits its turn. A queued coder already reserves its workspace, so a second
+editing run on the same `cwd` still fails fast with `WORKSPACE_BUSY`. `abort_session`
+cancels a queued run before it reaches OpenCode. When the bridge shuts down it interrupts
+its background runs, so no agent keeps working unsupervised (the OpenCode Desktop service
+outlives the bridge).
+
 - `files_changed` is the number of changed files; `changed_files` lists them as
   `{ file, status, additions, deletions }` (first 100). Use `get_diff` for the patch.
 - `usage` is `{ cost, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens,
@@ -339,7 +364,8 @@ Returns the same result as `delegate_task`, with `usage` for this message only.
 
 ### `get_session`
 
-Returns the stored session state plus live OpenCode status
+Returns the stored session state (`status` may be `queued`), a `background` block for
+background runs, plus live OpenCode status
 (`opencode.status` is `idle`, `busy` or `retry` when a server is running), and
 `usage` added up over every run of the session.
 
@@ -359,7 +385,8 @@ Returns `{ source, files, diff, truncated, note? }`.
 
 ### `abort_session`
 
-Stops a running delegation. Safe to call when the session is idle.
+Stops a running delegation, or cancels a queued background run. Safe to call when the
+session is idle.
 
 ### `list_agents`
 
@@ -504,7 +531,8 @@ Extra file: `CLAUDE_OPENCODE_CONFIG=/path/to/config.json` (highest precedence).
   "limits": {
     "summaryChars": 16000,
     "sessionChars": 20000,
-    "diffChars": 60000
+    "diffChars": 60000,
+    "maxConcurrentRuns": 3
   },
   "agents": {
     "researcher": { "model": "deepseek/deepseek-v4-pro" }
