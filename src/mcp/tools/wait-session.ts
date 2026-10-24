@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requestId } from "../../util/text.js";
 import type { AppContext } from "../execute.js";
 import { assertSession } from "../execute.js";
+import { pickSessionId, type SessionArgs, sessionInputFor } from "../session-arg.js";
 import { createProgressReporter, errorResult, jsonResult, type ToolExtra } from "../tool-utils.js";
 
 /** Default wait: short enough to stay under MCP client request timeouts. */
@@ -20,11 +21,9 @@ export function registerWaitSession(server: McpServer, ctx: AppContext): void {
         "To run agents in parallel: start each with background: true, then wait_session on each session_id.",
       ].join(" "),
       inputSchema: {
-        session_id: z
-          .string()
-          .min(1)
-          .max(200)
-          .describe("Session id returned by delegate_task/send_message with background: true."),
+        ...sessionInputFor(
+          "The session_id returned by delegate_task/send_message with background: true (session_id is accepted as an alias).",
+        ),
         timeout: z
           .number()
           .int()
@@ -37,10 +36,11 @@ export function registerWaitSession(server: McpServer, ctx: AppContext): void {
       },
       annotations: { readOnlyHint: true },
     },
-    async (args: { session_id: string; timeout?: number }, extra: ToolExtra) => {
+    async (args: SessionArgs & { timeout?: number }, extra: ToolExtra) => {
       const rid = requestId();
       try {
-        const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
+        const sid = pickSessionId(args, { source: "delegate_task", requirePrefix: false });
+        const session = assertSession(ctx.registry.get(sid), sid);
         const progress = createProgressReporter(extra, ctx.logger, rid);
         const startedWaiting = Date.now();
         const snapshot = await ctx.background.wait(

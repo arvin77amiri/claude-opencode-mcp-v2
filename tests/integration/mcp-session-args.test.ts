@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,7 +12,7 @@ import { createMcpServer } from "../../src/mcp/server.js";
 import { OpenCodeManager } from "../../src/opencode/manager.js";
 import { SessionRegistry } from "../../src/opencode/sessions.js";
 import { createLogger } from "../../src/util/logger.js";
-import { FakeOpenCode } from "../helpers/fake-opencode.js";
+import { FakeOpenCode, type FakePromptRequest } from "../helpers/fake-opencode.js";
 
 /**
  * The four read-only history tools called through tools/call, like a real MCP client does:
@@ -280,4 +281,119 @@ describe("history tools through tools/call", () => {
     },
     60_000,
   );
+});
+
+const SESSION_TOOLS = [
+  "get_session",
+  "wait_session",
+  "get_diff",
+  "send_message",
+  "abort_session",
+  "merge_task",
+  "discard_task",
+];
+
+describe("delegated-session tools take the id as `session`", () => {
+  it("run the whole coder flow without ever sending session_id", async () => {
+    const fake = new FakeOpenCode({
+      onPrompt: (request: FakePromptRequest) => {
+        const name = /WRITE (\w+)/.exec(request.text)?.[1];
+        if (name) fs.writeFileSync(path.join(request.directory, `${name}.txt`), `${name}\n`);
+        return { text: "done", delayMs: 200 };
+      },
+    });
+    fakeServer = fake;
+    const baseUrl = await fake.listen();
+    const repo = await fs.promises.realpath(
+      await fs.promises.mkdtemp(path.join(os.tmpdir(), "co-args-repo-")),
+    );
+    tempDirs.push(repo);
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+        cwd: repo,
+        encoding: "utf8",
+      }).trim();
+    git("init", "-q", "-b", "main");
+    fs.writeFileSync(path.join(repo, "a.txt"), "a\n");
+    git("add", "-A");
+    git("commit", "-qm", "init");
+    process.env.CLAUDE_OPENCODE_WORKTREE_DIR = path.join(repo, "..", `${path.basename(repo)}-wt`);
+    tempDirs.push(process.env.CLAUDE_OPENCODE_WORKTREE_DIR);
+
+    const stateDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "co-args-wt-"));
+    tempDirs.push(stateDir);
+    const config = BridgeConfigSchema.parse({ opencode: { url: baseUrl, autoStart: false } });
+    const logger = createLogger({ level: "silent" });
+    const manager = new OpenCodeManager({ logger });
+    const server = createMcpServer({
+      logger,
+      manager,
+      registry: new SessionRegistry(path.join(stateDir, "sessions.json"), logger),
+      globalConfig: config,
+      env: process.env,
+      stateDir,
+      loadProjectConfig: async () => ({ config, sources: [] }),
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "session-arg-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    toClose = {
+      client,
+      close: async () => {
+        delete process.env.CLAUDE_OPENCODE_WORKTREE_DIR;
+        await client.close().catch(() => undefined);
+        await server.close().catch(() => undefined);
+        await manager.stopAll().catch(() => undefined);
+      },
+    };
+    const call = async (name: string, args: Record<string, unknown>) => {
+      expect(Object.keys(args)).not.toContain("session_id");
+      const result = await client.callTool({ name, arguments: args });
+      return { ...parse(result), isError: result.isError === true };
+    };
+
+    // No tool requires session_id; all offer session.
+    const tools = new Map((await client.listTools()).tools.map((tool) => [tool.name, tool]));
+    for (const name of SESSION_TOOLS) {
+      const schema = tools.get(name)?.inputSchema as { properties?: object; required?: string[] };
+      expect(Object.keys(schema.properties ?? {}), name).toEqual(
+        expect.arrayContaining(["session", "session_id"]),
+      );
+      expect(schema.required ?? [], name).not.toContain("session_id");
+      expect(schema.required ?? [], name).not.toContain("session");
+    }
+
+    const started = await call("delegate_task", {
+      cwd: repo,
+      agent: "coder",
+      task: "WRITE one",
+      background: true,
+    });
+    const session = started.session_id as string;
+    const waited = await call("wait_session", { session, timeout: 20_000 });
+    expect(waited.status).toBe("completed");
+    expect((await call("get_session", { session })).session_id).toBe(session);
+    const followUp = await call("send_message", { session, message: "WRITE two" });
+    expect(followUp.status).toBe("completed");
+    const diff = await call("get_diff", { session });
+    expect(diff.files.map((f: { file: string }) => f.file).sort()).toEqual(["one.txt", "two.txt"]);
+    const merged = await call("merge_task", { session, message: "one and two" });
+    expect(merged.merged).toBe(true);
+    expect(git("log", "-1", "--format=%s")).toBe("one and two");
+
+    const other = await call("delegate_task", { cwd: repo, agent: "coder", task: "WRITE three" });
+    expect((await call("abort_session", { session: other.session_id })).aborted).toBe(true);
+    const discarded = await call("discard_task", { session: other.session_id });
+    expect(discarded.discarded).toBe(true);
+    expect(fs.existsSync(path.join(repo, "three.txt"))).toBe(false);
+
+    // No id at all: a clear INVALID_ARGUMENT naming `session`, never a schema error.
+    for (const name of SESSION_TOOLS) {
+      const args = name === "send_message" ? { message: "x" } : {};
+      const missing = await call(name, args);
+      expect(missing.isError, name).toBe(true);
+      expect(missing.error.code, name).toBe("INVALID_ARGUMENT");
+      expect(missing.error.message, name).toContain("`session`");
+    }
+  });
 });

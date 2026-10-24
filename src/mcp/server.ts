@@ -47,7 +47,7 @@ export const SERVER_INSTRUCTIONS = [
   "After a coder session, call get_diff to inspect exactly what changed, and have reviewer and/or tester check it (pass the worktree's path as their cwd) before deciding; do not rely on the coder's own summary.",
   "Then call merge_task to squash the work onto the base branch as one commit, or discard_task to drop it. Never leave worktrees unresolved without telling the user.",
   "Paths supplied to delegate_task are exploration hints, not boundaries.",
-  "To run agents in parallel, call delegate_task with background: true for each (it returns a session_id at once), then wait_session on each id. At most limits.maxConcurrentRuns (default 3) runs execute at once; the rest queue.",
+  "To run agents in parallel, call delegate_task with background: true for each (it returns a session_id at once), then wait_session on each id. Tools that act on a session take its id as `session` (`session_id` is an accepted alias). At most limits.maxConcurrentRuns (default 3) runs execute at once; the rest queue.",
   "To find earlier work in OpenCode (including sessions started in OpenCode Desktop): list_projects, then find_sessions with a project and an optional query, then session_digest for a short summary of one session, then read_messages for only the messages you need (find_sessions message_ids feed it directly). These tools are read-only and never start OpenCode.",
 ].join(" ");
 

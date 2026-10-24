@@ -11,6 +11,7 @@ import {
   executeRun,
   startBackgroundRun,
 } from "../execute.js";
+import { pickSessionId, sessionInputFor } from "../session-arg.js";
 import { prepareSessionRun, worktreeSummary } from "../session-utils.js";
 import { errorResult, jsonResult, type ToolExtra } from "../tool-utils.js";
 
@@ -22,11 +23,9 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
       description:
         "Continue an existing delegated session with another message. The agent keeps its previous context and its permission level; allow_edits / allow_bash can change that level for this and later messages. Returns the same result as delegate_task; an editing run fails with WORKSPACE_BUSY while another one is in progress on an overlapping cwd. With background: true it returns at once; collect the result with wait_session.",
       inputSchema: {
-        session_id: z
-          .string()
-          .min(1)
-          .max(200)
-          .describe("Session id returned by delegate_task/create_session."),
+        ...sessionInputFor(
+          "The session_id returned by delegate_task/create_session (session_id is accepted as an alias).",
+        ),
         message: z.string().min(1).max(50_000).describe("Follow-up instruction or question."),
         timeout: z
           .number()
@@ -58,7 +57,8 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
     },
     async (
       args: {
-        session_id: string;
+        session?: string;
+        session_id?: string;
         message: string;
         timeout?: number;
         allow_edits?: boolean;
@@ -69,7 +69,8 @@ export function registerSendMessage(server: McpServer, ctx: AppContext): void {
     ) => {
       const rid = requestId();
       try {
-        const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
+        const sid = pickSessionId(args, { source: "delegate_task", requirePrefix: false });
+        const session = assertSession(ctx.registry.get(sid), sid);
         assertNoActiveBackgroundRun(ctx, session.id);
         const prepared = await prepareSessionRun(ctx, session, {
           model: session.model ?? undefined,

@@ -1,5 +1,4 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import { BridgeError } from "../../errors.js";
 import type { FileDiff } from "../../opencode/api-types.js";
 import {
@@ -16,6 +15,7 @@ import {
   loadWorkspaceConfig,
   summarizeDiffEntry,
 } from "../execute.js";
+import { pickSessionId, type SessionArgs, sessionInputFor } from "../session-arg.js";
 import { worktreeSummary } from "../session-utils.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
 
@@ -32,18 +32,17 @@ export function registerGetDiff(server: McpServer, ctx: AppContext): void {
       description:
         "Return the file changes made by a delegated session. For a worktree (editing) session: the git diff of its branch against the commit it started from, committed or not, i.e. exactly what merge_task would apply (after a merge: the merged commit). Otherwise: OpenCode's session diff, or a git diff against the workspace state captured when the session was created.",
       inputSchema: {
-        session_id: z
-          .string()
-          .min(1)
-          .max(200)
-          .describe("Session id returned by delegate_task/create_session."),
+        ...sessionInputFor(
+          "The session_id returned by delegate_task/create_session (session_id is accepted as an alias).",
+        ),
       },
       annotations: { readOnlyHint: true },
     },
-    async (args: { session_id: string }) => {
+    async (args: SessionArgs) => {
       const rid = requestId();
       try {
-        const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
+        const sid = pickSessionId(args, { source: "delegate_task", requirePrefix: false });
+        const session = assertSession(ctx.registry.get(sid), sid);
         const config = await loadWorkspaceConfig(ctx, session.originCwd ?? session.cwd);
 
         const wt = session.worktree;

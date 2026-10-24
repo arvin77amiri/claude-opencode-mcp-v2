@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import { requestId } from "../../util/text.js";
 import type { AppContext } from "../execute.js";
 import { assertSession } from "../execute.js";
+import { pickSessionId, type SessionArgs, sessionInputFor } from "../session-arg.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
 
 export function registerAbortSession(server: McpServer, ctx: AppContext): void {
@@ -13,18 +13,17 @@ export function registerAbortSession(server: McpServer, ctx: AppContext): void {
       description:
         "Stop a long-running or unwanted delegated task. Safe to call when the session is already idle.",
       inputSchema: {
-        session_id: z
-          .string()
-          .min(1)
-          .max(200)
-          .describe("Session id returned by delegate_task/create_session."),
+        ...sessionInputFor(
+          "The session_id returned by delegate_task/create_session (session_id is accepted as an alias).",
+        ),
       },
       annotations: { destructiveHint: true },
     },
-    async (args: { session_id: string }) => {
+    async (args: SessionArgs) => {
       const rid = requestId();
       try {
-        const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
+        const sid = pickSessionId(args, { source: "delegate_task", requirePrefix: false });
+        const session = assertSession(ctx.registry.get(sid), sid);
         // A queued background run never reached OpenCode: cancelling it is enough.
         const queued = ctx.runSlots.position(session.id) !== null;
         const backgroundAborted = ctx.background.abort(session.id);

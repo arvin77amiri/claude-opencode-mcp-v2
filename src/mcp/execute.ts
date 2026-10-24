@@ -250,7 +250,7 @@ export function startBackgroundRun(
     agent: session.agent,
     cwd: session.cwd,
     model: prepared.modelString,
-    next: "Call wait_session with this session_id to get the result (it returns early with status running if the run is not done yet). abort_session cancels it.",
+    next: "Call wait_session with session set to this session_id to get the result (it returns early with status running if the run is not done yet). abort_session cancels it.",
   };
 }
 

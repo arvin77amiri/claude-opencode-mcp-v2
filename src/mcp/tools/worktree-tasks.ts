@@ -10,6 +10,7 @@ import {
   removeTaskWorktree,
 } from "../../workspace/worktree.js";
 import { type AppContext, assertSession } from "../execute.js";
+import { pickSessionId, type SessionArgs, sessionInputFor } from "../session-arg.js";
 import { worktreeSummary } from "../session-utils.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
 
@@ -146,7 +147,9 @@ export function registerMergeTask(server: McpServer, ctx: AppContext): void {
       description:
         "Accept the work of an editing session: everything on its worktree branch (committed or not) is squashed into ONE commit on the branch the task started from, then the worktree and branch are deleted. The bridge makes the commit, never the agent. Requires the user's checkout to still be on that branch with no uncommitted changes to tracked files (else WORKSPACE_DIRTY / INVALID_ARGUMENT; nothing is changed). On conflict (MERGE_CONFLICT) the checkout is restored exactly and the worktree is kept: send the session a follow-up to rebase its work, or discard_task. Review with get_diff first.",
       inputSchema: {
-        session_id: z.string().min(1).max(200).describe("Session id of the editing task."),
+        ...sessionInputFor(
+          "The session_id of the editing task (session_id is accepted as an alias).",
+        ),
         message: z
           .string()
           .min(1)
@@ -156,10 +159,13 @@ export function registerMergeTask(server: McpServer, ctx: AppContext): void {
       },
       annotations: { destructiveHint: false, idempotentHint: false },
     },
-    async (args: { session_id: string; message?: string }) => {
+    async (args: SessionArgs & { message?: string }) => {
       const rid = requestId();
       try {
-        const { session, wt } = activeWorktree(ctx, args.session_id);
+        const { session, wt } = activeWorktree(
+          ctx,
+          pickSessionId(args, { source: "delegate_task", requirePrefix: false }),
+        );
         const message =
           args.message?.trim() || session.title || `${session.agent}: delegated task ${session.id}`;
         const outcome = await withRepoLock(wt.repoRoot, () => mergeTaskWorktree(wt, message));
@@ -220,14 +226,19 @@ export function registerDiscardTask(server: McpServer, ctx: AppContext): void {
       description:
         "Reject the work of an editing session: delete its worktree and branch. The user's checkout is not touched. Cannot be undone.",
       inputSchema: {
-        session_id: z.string().min(1).max(200).describe("Session id of the editing task."),
+        ...sessionInputFor(
+          "The session_id of the editing task (session_id is accepted as an alias).",
+        ),
       },
       annotations: { destructiveHint: true, idempotentHint: true },
     },
-    async (args: { session_id: string }) => {
+    async (args: SessionArgs) => {
       const rid = requestId();
       try {
-        const { session, wt } = activeWorktree(ctx, args.session_id);
+        const { session, wt } = activeWorktree(
+          ctx,
+          pickSessionId(args, { source: "delegate_task", requirePrefix: false }),
+        );
         const cleanup = await withRepoLock(wt.repoRoot, () => removeTaskWorktree(wt));
         const updated = setWorktree(ctx, session, {
           ...wt,

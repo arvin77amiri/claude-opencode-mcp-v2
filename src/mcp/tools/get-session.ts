@@ -1,10 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import { BridgeError } from "../../errors.js";
 import { latestActivity } from "../../opencode/activity.js";
 import { OpenCodeApiError } from "../../opencode/client.js";
 import { requestId } from "../../util/text.js";
 import { type AppContext, assertSession, loadWorkspaceConfig } from "../execute.js";
+import { pickSessionId, type SessionArgs, sessionInputFor } from "../session-arg.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
 
 export function registerGetSession(server: McpServer, ctx: AppContext): void {
@@ -15,18 +15,17 @@ export function registerGetSession(server: McpServer, ctx: AppContext): void {
       description:
         "Return the stored state of a delegated session plus its live OpenCode status when a server is running, including the time of the last agent activity (opencode.last_activity_at, idle_ms) so a long-running session can be told apart from a stuck one, and the cost and tokens of all its runs (usage). Use get_diff to inspect file changes.",
       inputSchema: {
-        session_id: z
-          .string()
-          .min(1)
-          .max(200)
-          .describe("Session id returned by delegate_task/create_session."),
+        ...sessionInputFor(
+          "The session_id returned by delegate_task/create_session (session_id is accepted as an alias).",
+        ),
       },
       annotations: { readOnlyHint: true },
     },
-    async (args: { session_id: string }) => {
+    async (args: SessionArgs) => {
       const rid = requestId();
       try {
-        const session = assertSession(ctx.registry.get(args.session_id), args.session_id);
+        const sid = pickSessionId(args, { source: "delegate_task", requirePrefix: false });
+        const session = assertSession(ctx.registry.get(sid), sid);
         const config = await loadWorkspaceConfig(ctx, session.cwd);
         const maxChars = config.limits.sessionChars;
         const client = ctx.manager.existingClient();
