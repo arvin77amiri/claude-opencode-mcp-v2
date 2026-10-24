@@ -10,11 +10,12 @@ import { errorResult, jsonResult } from "../tool-utils.js";
 export const SESSION_DIGEST_DESCRIPTION =
   "A short summary (about 1500 characters at most) of one earlier OpenCode session: " +
   "{title, goal (first user message), last_request (last user message), compaction_summary " +
-  "(latest, if any), files_changed (paths from write/edit calls), errors [{msg_id, type, " +
+  "(latest, if any), files_changed (paths from write/edit calls), errors [{msg_id, idle_msg_id?, type, " +
   "message}] (latest first), final_state {outcome, finish, idle_error}, tools_used {name: count}, " +
   "counts {messages, user, assistant}, fingerprint}. " +
   "errors carry the real failure (provider errors, failed tools, failed runs); their msg_id " +
-  "goes straight into read_messages. fingerprint changes whenever the session does. " +
+  "goes straight into read_messages (it points to the assistant message, where the context is; " +
+  "idle_msg_id is the idle message that reported the same error, rarely worth reading). fingerprint changes whenever the session does. " +
   "partial: true means some data is missing (time budget or a failed read); truncated: true " +
   "means fields were shortened to fit the cap. Never includes reasoning, tool output or file " +
   "contents. Read-only (GET only); never starts OpenCode. " +

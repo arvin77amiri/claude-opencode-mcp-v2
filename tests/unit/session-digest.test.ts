@@ -111,9 +111,15 @@ describe("buildDigest", () => {
     expect(digest.compaction_summary?.length).toBeLessThanOrEqual(600);
     // Deduplicated, relative to the session folder.
     expect(digest.files_changed).toEqual(["src\\retry.ts", "src\\deploy.ts"]);
-    // Newest first; the assistant error and the idle error are the same failure, listed once.
+    // Newest first; the assistant error and the idle error are the same failure, listed once,
+    // pointing to the assistant message (msg_05) with the idle message as idle_msg_id.
     expect(digest.errors).toEqual([
-      { msg_id: "msg_06", type: "ProviderError", message: "Free usage limit reached" },
+      {
+        msg_id: "msg_05",
+        idle_msg_id: "msg_06",
+        type: "ProviderError",
+        message: "Free usage limit reached",
+      },
       { msg_id: "msg_02", type: "tool:shell", message: "exit code 1: tests failed" },
     ]);
     expect(digest.final_state).toEqual({
@@ -126,6 +132,46 @@ describe("buildDigest", () => {
     expect(digest.fingerprint).toBe("msg_06@6:failed");
     expect(digest.partial).toBeUndefined();
     expect(JSON.stringify(digest).length).toBeLessThanOrEqual(DIGEST_MAX_CHARS);
+  });
+
+  it("points a shared assistant/idle error at the assistant message and adds idle_msg_id", async () => {
+    const digest = await digestOf([
+      user("msg_1", "go", 1),
+      assistant(
+        "msg_2",
+        [text("working")],
+        { finish: "error", error: { type: "Boom", message: "provider down" } },
+        2,
+      ),
+      idle("msg_3", "failed", { type: "Boom", message: "provider down" }, 3),
+    ]);
+    expect(digest.errors).toEqual([
+      { msg_id: "msg_2", idle_msg_id: "msg_3", type: "Boom", message: "provider down" },
+    ]);
+  });
+
+  it("keeps the idle message as msg_id when only the idle message has the error", async () => {
+    const digest = await digestOf([
+      user("msg_1", "go", 1),
+      assistant("msg_2", [text("working")], { finish: "stop" }, 2),
+      idle("msg_3", "failed", { type: "Crash", message: "run failed" }, 3),
+    ]);
+    expect(digest.errors).toEqual([{ msg_id: "msg_3", type: "Crash", message: "run failed" }]);
+    expect(digest.errors[0]).not.toHaveProperty("idle_msg_id");
+  });
+
+  it("does not merge different errors of the assistant and the idle message", async () => {
+    const digest = await digestOf([
+      assistant(
+        "msg_2",
+        [text("x")],
+        { finish: "error", error: { type: "A", message: "first" } },
+        2,
+      ),
+      idle("msg_3", "failed", { type: "B", message: "second" }, 3),
+    ]);
+    expect(digest.errors.map((error) => error.msg_id)).toEqual(["msg_3", "msg_2"]);
+    expect(digest.errors.every((error) => !("idle_msg_id" in error))).toBe(true);
   });
 
   it("never carries reasoning, file content or tool output", async () => {

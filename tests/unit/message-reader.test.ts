@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   type MessageView,
+  READ_MAX_CHARS,
   READ_PAGE_SIZE,
+  READ_PER_MESSAGE_CHARS,
   readMessages,
   shrinkView,
   takeWithinBudget,
 } from "../../src/opencode/message-reader.js";
 import {
   assistant,
+  compaction,
   MessageStub,
   type RawMessage,
   text,
@@ -129,6 +132,82 @@ describe("read_messages by id", () => {
     expect(JSON.stringify(answer).length).toBeLessThanOrEqual(600);
     expect(answer.messages[0]?.truncated).toBe(true);
     expect(answer.more).toBe(true);
+  });
+});
+
+describe("read_messages per-message cap", () => {
+  const big = (index: number, size = 3_000) =>
+    user(`msg_${index}`, `m${index} ${"x".repeat(size)}`, index);
+
+  it("has the new defaults", () => {
+    expect(READ_MAX_CHARS).toBe(6_000);
+    expect(READ_PER_MESSAGE_CHARS).toBe(1_200);
+  });
+
+  it("fits several long messages into the default budget, each cut with a marker", async () => {
+    const messages = [1, 2, 3, 4].map((index) => big(index));
+    const answer = await readMessages(new MessageStub(messages), {
+      sessionId: "ses_1",
+      messageIds: messages.map((message) => message.id),
+    });
+    expect(ids(answer.messages)).toEqual(["msg_1", "msg_2", "msg_3", "msg_4"]);
+    expect(answer.more).toBeUndefined();
+    expect(answer.remaining_ids).toBeUndefined();
+    expect(JSON.stringify(answer).length).toBeLessThanOrEqual(READ_MAX_CHARS);
+    for (const message of answer.messages) {
+      expect(message.truncated).toBe(true);
+      expect(message.text).toMatch(/\[truncated \d+ chars\]$/);
+      expect((message.text ?? "").length).toBeLessThanOrEqual(READ_PER_MESSAGE_CHARS + 30);
+    }
+    expect(answer.messages[0]?.text).toContain("[truncated 1803 chars]");
+  });
+
+  it("leaves a message under the cap alone and honours a larger per_message_chars", async () => {
+    const stub = new MessageStub([big(1)]);
+    const small = await readMessages(stub, {
+      sessionId: "ses_1",
+      messageIds: ["msg_1"],
+      perMessageChars: 4_000,
+    });
+    expect(small.messages[0]?.truncated).toBe(false);
+    expect(small.messages[0]?.text).not.toContain("[truncated");
+    expect(small.messages[0]?.text?.length).toBe(3_003);
+  });
+
+  it("honours a smaller per_message_chars and applies it to compaction summaries too", async () => {
+    const answer = await readMessages(
+      new MessageStub([big(1), compaction("msg_2", "s".repeat(900))]),
+      {
+        sessionId: "ses_1",
+        messageIds: ["msg_1", "msg_2"],
+        perMessageChars: 300,
+      },
+    );
+    expect(answer.messages[0]?.text).toMatch(/^m1 x+ \[truncated 2703 chars\]$/);
+    expect(answer.messages[1]?.text).toContain("[truncated 600 chars]");
+  });
+
+  it("applies the cap in around mode as well", async () => {
+    const answer = await readMessages(new MessageStub([big(1), big(2), big(3)]), {
+      sessionId: "ses_1",
+      around: "msg_2",
+      before: 1,
+      after: 1,
+    });
+    expect(ids(answer.messages)).toEqual(["msg_1", "msg_2", "msg_3"]);
+    expect(answer.messages.every((message) => message.truncated)).toBe(true);
+  });
+
+  it("still reports more and remaining_ids when the budget is exceeded", async () => {
+    const messages = [1, 2, 3, 4, 5].map((index) => big(index));
+    const answer = await readMessages(new MessageStub(messages), {
+      sessionId: "ses_1",
+      messageIds: messages.map((message) => message.id),
+      maxChars: 2_000,
+    });
+    expect(JSON.stringify(answer).length).toBeLessThanOrEqual(2_000);
+    expect(answer.more).toBe(true);
+    expect((answer.remaining_ids ?? []).length).toBeGreaterThan(0);
   });
 });
 

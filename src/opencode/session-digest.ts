@@ -33,7 +33,10 @@ export interface DigestClient {
 }
 
 export interface DigestError {
+  /** The message to read for context: the assistant message when there is one. */
   msg_id: string;
+  /** The idle message that reported the same error, when it is a different message. */
+  idle_msg_id?: string;
   type: string;
   status?: number;
   message: string;
@@ -228,20 +231,34 @@ export function buildDigest(parts: DigestParts): SessionDigest {
     }
   }
 
-  // Newest first, one entry per distinct (type, message).
+  // Newest first, one entry per distinct (type, message). When the assistant message and the
+  // idle message report the same error, the entry points to the ASSISTANT message (that is where
+  // the context is); the idle id is kept as `idle_msg_id`.
   const errors: DigestError[] = [];
-  const seenErrors = new Set<string>();
+  const seenErrors = new Map<string, { entry: DigestError; byIdle: boolean }>();
   for (const record of [...parts.records].reverse()) {
+    const isIdle = record.type === "idle";
     for (const error of [...record.errors].reverse()) {
       const key = `${error.type}|${error.message}`;
-      if (seenErrors.has(key)) continue;
-      seenErrors.add(key);
-      errors.push({
+      const seen = seenErrors.get(key);
+      if (seen) {
+        if (seen.byIdle && !isIdle) {
+          seen.entry.idle_msg_id = seen.entry.msg_id;
+          seen.entry.msg_id = record.id;
+          seen.byIdle = false;
+        } else if (!seen.byIdle && isIdle && !seen.entry.idle_msg_id) {
+          seen.entry.idle_msg_id = record.id;
+        }
+        continue;
+      }
+      const entry: DigestError = {
         msg_id: record.id,
         type: error.type,
         ...(error.status !== undefined ? { status: error.status } : {}),
         message: cutText(error.message, 200),
-      });
+      };
+      seenErrors.set(key, { entry, byIdle: isIdle });
+      errors.push(entry);
     }
   }
 

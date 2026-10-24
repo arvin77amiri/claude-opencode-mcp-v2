@@ -16,19 +16,27 @@ import {
  * `more: true` instead of being squeezed in.
  */
 
-export const READ_MAX_CHARS = 4_000;
+export const READ_MAX_CHARS = 6_000;
+/** Default cap of the text of ONE message, so that several messages fit in one answer. */
+export const READ_PER_MESSAGE_CHARS = 1_200;
 export const READ_BUDGET_MS = 15_000;
 export const READ_PAGE_SIZE = 100;
 export const READ_MAX_PAGES = 20;
 export const READ_MAX_IDS = 20;
 
-/** Pre-clip very long texts here; the real cut is the character budget. */
-const READ_LIMITS: FilterLimits = {
-  textChars: 20_000,
-  summaryChars: 20_000,
-  inputChars: 200,
-  errorChars: 300,
-};
+/**
+ * Limits of the shared filter for one read: texts and compaction summaries are cut to
+ * `perMessageChars` and keep the "[truncated N chars]" marker; the character budget of the whole
+ * answer is applied afterwards.
+ */
+export function readLimits(perMessageChars: number = READ_PER_MESSAGE_CHARS): FilterLimits {
+  return {
+    textChars: perMessageChars,
+    summaryChars: perMessageChars,
+    inputChars: 200,
+    errorChars: 300,
+  };
+}
 
 /** The read-only slice of OpenCodeClient that read_messages needs. */
 export interface MessageReaderClient {
@@ -216,6 +224,7 @@ export async function readByIds(
   sessionId: string,
   ids: readonly string[],
   signal?: AbortSignal,
+  limits: FilterLimits = readLimits(),
 ): Promise<{ views: MessageView[]; missing: string[] }> {
   const unique = [...new Set(ids)];
   const options = signal ? { signal } : {};
@@ -236,7 +245,7 @@ export async function readByIds(
       missing.push(unique[index] as string);
       continue;
     }
-    const compact = normalizeMessage(raw, READ_LIMITS);
+    const compact = normalizeMessage(raw, limits);
     views.push(compact ? viewOf(compact) : stubOf(raw));
   }
   return { views, missing };
@@ -279,6 +288,7 @@ async function loadPage(
   query: { order?: "asc" | "desc"; cursor?: string },
   reverse: boolean,
   signal: AbortSignal,
+  limits: FilterLimits = readLimits(),
 ): Promise<{ entries: Entry[]; next: string | undefined; more: boolean }> {
   const page = await client.messages(
     sessionId,
@@ -289,7 +299,7 @@ async function loadPage(
     { signal },
   );
   const entries = page.data.map((raw): Entry => {
-    const compact = normalizeMessage(raw, READ_LIMITS);
+    const compact = normalizeMessage(raw, limits);
     return { id: raw.id, view: compact ? viewOf(compact) : null, stub: stubOf(raw) };
   });
   if (reverse) entries.reverse();
@@ -318,6 +328,7 @@ export async function readAround(
   before: number,
   after: number,
   signal: AbortSignal,
+  limits: FilterLimits = readLimits(),
 ): Promise<AroundResult | { notFound: string }> {
   const find = (entries: readonly Entry[]): number =>
     entries.findIndex((entry) => entry.id === target);
@@ -346,10 +357,17 @@ export async function readAround(
   };
 
   // Head: pages from the oldest message, forward.
-  const first = await loadPage(client, sessionId, { order: "asc" }, false, signal);
+  const first = await loadPage(client, sessionId, { order: "asc" }, false, signal, limits);
   const head: Window = { entries: first.entries, next: first.next, more: first.more };
   const extendForward = async (): Promise<void> => {
-    const page = await loadPage(client, sessionId, { cursor: head.next as string }, false, signal);
+    const page = await loadPage(
+      client,
+      sessionId,
+      { cursor: head.next as string },
+      false,
+      signal,
+      limits,
+    );
     head.entries.push(...page.entries);
     head.next = page.next;
     head.more = page.more;
@@ -373,7 +391,7 @@ export async function readAround(
   if (!head.more) return { notFound: "message is not in this session" };
 
   // Tail: the newest page, for ids near the end of a long session.
-  const newest = await loadPage(client, sessionId, { order: "desc" }, true, signal);
+  const newest = await loadPage(client, sessionId, { order: "desc" }, true, signal, limits);
   const tail: Window = { entries: newest.entries, next: newest.next, more: newest.more };
   if (find(tail.entries) >= 0) {
     // Neighbours before the target may sit on older pages: a desc cursor continues backwards.
@@ -390,6 +408,7 @@ export async function readAround(
         { cursor: tail.next as string },
         true,
         signal,
+        limits,
       );
       tail.entries = [...older.entries, ...tail.entries];
       tail.next = older.next;
@@ -425,6 +444,8 @@ export interface ReadRequest {
   after?: number;
   /** Budget for the whole answer (compact JSON). */
   maxChars?: number;
+  /** Cap of the text of one message (default READ_PER_MESSAGE_CHARS). */
+  perMessageChars?: number;
   budgetMs?: number;
 }
 
@@ -442,6 +463,7 @@ export async function readMessages(
   request: ReadRequest,
 ): Promise<ReadAnswer> {
   const maxChars = request.maxChars ?? READ_MAX_CHARS;
+  const limits = readLimits(request.perMessageChars ?? READ_PER_MESSAGE_CHARS);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), request.budgetMs ?? READ_BUDGET_MS);
   try {
@@ -458,6 +480,7 @@ export async function readMessages(
         request.before ?? 1,
         request.after ?? 2,
         controller.signal,
+        limits,
       );
       if ("notFound" in result) {
         notFound = result.notFound;
@@ -476,6 +499,7 @@ export async function readMessages(
         request.sessionId,
         (request.messageIds ?? []).slice(0, READ_MAX_IDS),
         controller.signal,
+        limits,
       );
       chronological = result.views;
       priority = result.views;
@@ -487,25 +511,42 @@ export async function readMessages(
       ...(missing.length > 0 ? { missing_ids: missing } : {}),
       ...(notFound ? { not_found: notFound } : {}),
     };
-    // Room for the wrapper, including `more` and a short remaining_ids list.
+    // Room for the wrapper, including `more`. The remaining_ids list is added to the reserve
+    // when a first pass shows that it would not fit (a shortened last message fills the budget).
     const reserve = sizeOf({ ...header, messages: [], more: true });
-    const { kept, dropped, shrunk } = takeWithinBudget(priority, Math.max(0, maxChars - reserve));
     const order = new Map(chronological.map((view, index) => [view.id, index]));
-    kept.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    const assemble = (idsRoom: number): { answer: ReadAnswer; dropped: string[] } => {
+      const { kept, dropped, shrunk } = takeWithinBudget(
+        priority,
+        Math.max(0, maxChars - reserve - idsRoom),
+      );
+      kept.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+      const more = dropped.length > 0 || shrunk;
+      const droppedIds = dropped.map((view) => view.id);
+      return {
+        dropped: droppedIds,
+        answer: {
+          ...header,
+          messages: kept,
+          ...(more ? { more: true as const } : {}),
+          ...(droppedIds.length > 0 ? { remaining_ids: droppedIds } : {}),
+        },
+      };
+    };
 
-    const more = dropped.length > 0 || shrunk;
-    let remaining = dropped.map((view) => view.id);
-    const build = (): ReadAnswer => ({
-      ...header,
-      messages: kept,
-      ...(more ? { more: true as const } : {}),
-      ...(remaining.length > 0 ? { remaining_ids: remaining } : {}),
-    });
-    let answer = build();
-    // The id list is a convenience: shrink it before anything else if the wrapper ran over.
+    let idsRoom = 0;
+    let result = assemble(idsRoom);
+    for (let pass = 0; pass < 2 && sizeOf(result.answer) > maxChars; pass += 1) {
+      idsRoom = sizeOf({ remaining_ids: result.dropped });
+      result = assemble(idsRoom);
+    }
+    let { answer } = result;
+    // The id list is a convenience: shrink it before anything else if the wrapper still ran over.
+    let remaining = answer.remaining_ids ?? [];
     while (sizeOf(answer) > maxChars && remaining.length > 0) {
       remaining = remaining.slice(0, -1);
-      answer = build();
+      const { remaining_ids: _dropped, ...rest } = answer;
+      answer = { ...rest, ...(remaining.length > 0 ? { remaining_ids: remaining } : {}) };
     }
     return answer;
   } finally {

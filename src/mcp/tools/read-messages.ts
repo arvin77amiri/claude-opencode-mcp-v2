@@ -1,7 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BridgeError } from "../../errors.js";
-import { READ_MAX_CHARS, READ_MAX_IDS, readMessages } from "../../opencode/message-reader.js";
+import {
+  READ_MAX_CHARS,
+  READ_MAX_IDS,
+  READ_PER_MESSAGE_CHARS,
+  readMessages,
+} from "../../opencode/message-reader.js";
 import { requestId } from "../../util/text.js";
 import type { AppContext } from "../execute.js";
 import { asSessionError, readOnlyClient } from "../read-client.js";
@@ -14,9 +19,13 @@ export const READ_MESSAGES_DESCRIPTION =
   "ahead of it (default 1) and `after` readable messages behind it (default 2). " +
   "Returns {session_id, messages: [{id, type: user|assistant|compaction|shell|idle, time, text, " +
   "tools: [{name, status, input_summary, error?}], error?, finish?, truncated}], more?, " +
-  "remaining_ids?, missing_ids?}. max_chars (default 4000) is the budget for the WHOLE answer: " +
+  "remaining_ids?, missing_ids?}. max_chars (default 6000) is the budget for the WHOLE answer: " +
   "when it is exceeded the rest is left out and more: true is set (remaining_ids can be asked " +
-  "for in a second call). Never includes reasoning, base64 attachments, raw tool output or the " +
+  "for in a second call). per_message_chars (default 1200) caps the text of EACH message so that " +
+  "several fit in one answer; a cut text ends in [truncated N chars] and the message has " +
+  "truncated: true. Do not raise it up front: only when the truncated part is actually needed, " +
+  "request that single message again (message_ids with just its id) with a larger " +
+  "per_message_chars (and max_chars if needed). Never includes reasoning, base64 attachments, raw tool output or the " +
   "content of write/edit calls (tools show their path or command only). " +
   "Read-only (GET only); never starts OpenCode. " +
   "Workflow: list_projects -> find_sessions -> session_digest -> read_messages " +
@@ -67,6 +76,15 @@ export function registerReadMessages(server: McpServer, ctx: AppContext): void {
           .max(12_000)
           .default(READ_MAX_CHARS)
           .describe("Total size budget of the answer in characters."),
+        per_message_chars: z
+          .number()
+          .int()
+          .min(200)
+          .max(12_000)
+          .default(READ_PER_MESSAGE_CHARS)
+          .describe(
+            "Cap of the text of each single message (default 1200). Raise it only when re-requesting one message whose truncated part you really need.",
+          ),
       },
       annotations: { readOnlyHint: true },
     },
@@ -77,6 +95,7 @@ export function registerReadMessages(server: McpServer, ctx: AppContext): void {
       before?: number;
       after?: number;
       max_chars?: number;
+      per_message_chars?: number;
     }) => {
       const rid = requestId();
       try {
@@ -102,6 +121,7 @@ export function registerReadMessages(server: McpServer, ctx: AppContext): void {
           before: args.before ?? 1,
           after: args.after ?? 2,
           maxChars: args.max_chars ?? READ_MAX_CHARS,
+          perMessageChars: args.per_message_chars ?? READ_PER_MESSAGE_CHARS,
         });
         return jsonResult(answer, { compact: true, structured: false });
       } catch (error) {
