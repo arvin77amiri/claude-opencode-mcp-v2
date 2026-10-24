@@ -111,3 +111,50 @@ export function resolveProject(
     ) ?? { status: "not_found" }
   );
 }
+
+/**
+ * A reference that resolved to one project, or to several "twin" projects: look-alike entries
+ * of the same folder (OpenCode can list one folder under more than one project id). `projects`
+ * always has at least one entry; the project the caller named comes first.
+ */
+export type ProjectGroupResolution =
+  | { status: "ok"; projects: ProjectInfo[] }
+  | { status: "ambiguous"; candidates: ProjectInfo[] }
+  | { status: "not_found" };
+
+/** True when every project has the same, non-empty canonical folder. */
+export function shareCanonicalPath(projects: readonly ProjectInfo[]): boolean {
+  const [first] = projects;
+  if (!first) return false;
+  const key = normalizePathKey(first.canonical);
+  return key !== "" && projects.every((project) => normalizePathKey(project.canonical) === key);
+}
+
+/** The given projects plus every other project with the same canonical folder. */
+function withTwins(all: readonly ProjectInfo[], seed: readonly ProjectInfo[]): ProjectInfo[] {
+  const key = normalizePathKey(seed[0]?.canonical ?? "");
+  const twins =
+    key === "" ? [] : all.filter((project) => normalizePathKey(project.canonical) === key);
+  return unique([...seed, ...twins]);
+}
+
+/**
+ * Like `resolveProject`, but twins count as ONE project: when every ambiguous candidate shares
+ * the same canonical path they are merged, and a single hit also pulls in its twins. Candidates
+ * with different paths stay ambiguous (the bridge never guesses between real look-alikes).
+ */
+export function resolveProjectGroup(
+  projects: readonly ProjectInfo[],
+  reference: string,
+): ProjectGroupResolution {
+  const resolution = resolveProject(projects, reference);
+  if (resolution.status === "ok") {
+    return { status: "ok", projects: withTwins(projects, [resolution.project]) };
+  }
+  if (resolution.status === "ambiguous") {
+    return shareCanonicalPath(resolution.candidates)
+      ? { status: "ok", projects: withTwins(projects, resolution.candidates) }
+      : resolution;
+  }
+  return resolution;
+}

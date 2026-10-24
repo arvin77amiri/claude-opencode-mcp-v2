@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BridgeError } from "../../errors.js";
-import { describeProjects } from "../../opencode/project-catalog.js";
-import { projectName, resolveProject } from "../../opencode/project-resolver.js";
-import { fitToBudget, searchSessions } from "../../opencode/session-search.js";
+import { describeProjects, mergeTwinRows } from "../../opencode/project-catalog.js";
+import { projectName, resolveProjectGroup } from "../../opencode/project-resolver.js";
+import { fitToBudget, mergeSearchResults, searchSessions } from "../../opencode/session-search.js";
 import { requestId } from "../../util/text.js";
 import type { AppContext } from "../execute.js";
 import { asBridgeError, readOnlyClient } from "../read-client.js";
@@ -25,9 +25,12 @@ export const FIND_SESSIONS_DESCRIPTION =
   "Returns [{session_id, title, updated, outcome, match: title|content, snippet, message_ids}] " +
   "(message_ids point at the matching messages; content matches only). Answers stay under about " +
   "4000 characters; partial: true means the 15 s time budget ran out before every session was " +
-  "searched (use a narrower query or a lower scan). Read-only (GET only); never starts OpenCode. " +
-  "Workflow: list_projects -> find_sessions -> session_digest -> read_messages " +
-  "(the last two arrive in later versions); use the session_id and message_ids you get here.";
+  "searched (use a narrower query or a lower scan). A folder listed under several project ids " +
+  "(twins) counts as ONE project: their sessions are merged and every id is reported in " +
+  "project.ids. Read-only (GET only); never starts OpenCode. " +
+  "Workflow: list_projects -> find_sessions -> session_digest (summary of one session) -> " +
+  "read_messages (only the messages you need). Pass the session_id to session_digest, and the " +
+  "session_id with the message_ids from a content match straight to read_messages.";
 
 export function registerFindSessions(server: McpServer, ctx: AppContext): void {
   server.registerTool(
@@ -67,7 +70,7 @@ export function registerFindSessions(server: McpServer, ctx: AppContext): void {
       const rid = requestId();
       try {
         const client = await readOnlyClient(ctx);
-        const resolution = resolveProject(await client.projects(), args.project);
+        const resolution = resolveProjectGroup(await client.projects(), args.project);
 
         if (resolution.status === "not_found") {
           throw new BridgeError(
@@ -84,24 +87,39 @@ export function registerFindSessions(server: McpServer, ctx: AppContext): void {
             {
               status: "ambiguous",
               message: `"${args.project}" matches several projects; call find_sessions again with one id.`,
-              candidates: rows,
+              candidates: mergeTwinRows(rows),
             },
             { compact: true, structured: false },
           );
         }
 
-        const { project } = resolution;
-        const result = await searchSessions(client, {
-          project: project.id,
-          ...(args.query?.trim() ? { query: args.query.trim() } : {}),
-          limit: args.limit ?? 10,
-          scan: args.scan ?? 20,
-          budgetMs: FIND_SESSIONS_BUDGET_MS,
-        });
+        // Twins (one folder, several project ids) are searched together and merged.
+        const { projects: group } = resolution;
+        const [project] = group;
+        if (!project)
+          throw new BridgeError("INTERNAL_ERROR", "Project resolution returned no project.");
+        const limit = args.limit ?? 10;
+        const results = await Promise.all(
+          group.map((member) =>
+            searchSessions(client, {
+              project: member.id,
+              ...(args.query?.trim() ? { query: args.query.trim() } : {}),
+              limit,
+              scan: args.scan ?? 20,
+              budgetMs: FIND_SESSIONS_BUDGET_MS,
+            }),
+          ),
+        );
+        const [only] = results;
+        const result = results.length === 1 && only ? only : mergeSearchResults(results, limit);
 
         const payload = fitToBudget(
           {
-            project: { id: project.id, name: projectName(project) },
+            project: {
+              id: project.id,
+              ...(group.length > 1 ? { ids: group.map((member) => member.id) } : {}),
+              name: projectName(project),
+            },
             ...(args.query?.trim() ? { query: args.query.trim() } : {}),
             scanned: result.scanned,
             partial: result.partial,

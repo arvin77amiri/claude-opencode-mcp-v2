@@ -235,6 +235,37 @@ export class OpenCodeClient {
   }
 
   /**
+   * `GET /api/session/{id}/message/{messageID}` (read-only). Null when the message does not
+   * exist; an unknown session still throws (404 SessionNotFoundError).
+   */
+  async message(
+    sessionId: string,
+    messageId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<SessionMessage | null> {
+    try {
+      const result = await this.request<Envelope<SessionMessage>>(
+        "GET",
+        `/api/session/${enc(sessionId)}/message/${enc(messageId)}`,
+        { ...(options.signal ? { signal: options.signal } : {}) },
+      );
+      return result?.data ?? null;
+    } catch (error) {
+      const body = error instanceof OpenCodeApiError ? error.body : undefined;
+      const tag =
+        typeof body === "object" && body !== null ? (body as { _tag?: unknown })._tag : undefined;
+      if (
+        error instanceof OpenCodeApiError &&
+        error.status === 404 &&
+        tag !== "SessionNotFoundError"
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * `GET /api/session` (read-only). `search` matches titles only. `order` is sent on the first
    * page only: with a `cursor` the API answers 400 InvalidCursorError. The server always returns
    * `cursor.next`, so the end of paging is a page with fewer items than `limit`.

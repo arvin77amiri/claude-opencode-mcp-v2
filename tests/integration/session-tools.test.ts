@@ -357,3 +357,257 @@ describe("find_sessions", () => {
     expect(data.sessions.length + (data.omitted ?? 0)).toBe(25);
   });
 });
+
+const TWINS = [
+  { id: "prj_t1", canonical: "C:\\work\\paper", updated: T },
+  { id: "prj_t2", canonical: "c:/work/paper/", name: "Paper", updated: T },
+  { id: "prj_other", canonical: "D:\\elsewhere\\Paper" },
+];
+
+function seedTwins(opencode: FakeOpenCode): void {
+  opencode.seedSession({
+    id: "ses_t1",
+    projectID: "prj_t1",
+    title: "Intro draft",
+    updated: T + 1_000,
+    messages: [{ id: "msg_t1", type: "user", text: "write the intro", time: { created: 1 } }],
+  });
+  opencode.seedSession({
+    id: "ses_t2",
+    projectID: "prj_t2",
+    title: "Methods draft",
+    updated: T + 3_000,
+    messages: [{ id: "msg_t2", type: "user", text: "write the methods", time: { created: 1 } }],
+  });
+  opencode.seedSession({
+    id: "ses_t3",
+    projectID: "prj_t1",
+    title: "Figures",
+    updated: T + 2_000,
+    messages: [{ id: "msg_t3", type: "user", text: "plot the zebra data", time: { created: 1 } }],
+  });
+}
+
+describe("twin projects", () => {
+  it("merges the sessions of twins into one answer and reports every id", async () => {
+    // "paper" matches prj_t1 and prj_t2 (same folder) but also prj_other (another folder).
+    await setup({ fake: { projects: TWINS.slice(0, 2) } });
+    seedTwins(fake!);
+    const data = parse(await call("find_sessions", { project: "paper" }));
+    expect(data.status).toBeUndefined();
+    expect(data.project).toEqual({ id: "prj_t1", ids: ["prj_t1", "prj_t2"], name: "paper" });
+    expect(data.sessions.map((hit: { session_id: string }) => hit.session_id)).toEqual([
+      "ses_t2",
+      "ses_t3",
+      "ses_t1",
+    ]);
+  });
+
+  it("searches content in every twin and finds a session of the other id", async () => {
+    await setup({ fake: { projects: TWINS.slice(0, 2) } });
+    seedTwins(fake!);
+    const byId = parse(await call("find_sessions", { project: "prj_t2", query: "zebra" }));
+    expect(byId.project.ids).toEqual(["prj_t2", "prj_t1"]);
+    expect(byId.sessions).toHaveLength(1);
+    expect(byId.sessions[0]).toMatchObject({ session_id: "ses_t3", match: "content" });
+  });
+
+  it("keeps the ambiguous answer when the candidates are different folders", async () => {
+    await setup({ fake: { projects: TWINS } });
+    seedTwins(fake!);
+    const data = parse(await call("find_sessions", { project: "paper" }));
+    expect(data.status).toBe("ambiguous");
+    // The twins are one candidate, the other folder another.
+    expect(data.candidates).toHaveLength(2);
+    expect(data.candidates[0]).toMatchObject({
+      id: "prj_t2",
+      ids: ["prj_t2", "prj_t1"],
+      session_count: 3,
+    });
+    expect(data.candidates[1]).toMatchObject({ id: "prj_other" });
+  });
+
+  it("lists twins as one project", async () => {
+    await setup({ fake: { projects: TWINS } });
+    seedTwins(fake!);
+    const data = parse(await call("list_projects"));
+    expect(data.projects).toEqual([
+      {
+        id: "prj_t2",
+        ids: ["prj_t2", "prj_t1"],
+        name: "Paper",
+        path: "c:/work/paper/",
+        session_count: 3,
+        last_activity: new Date(T + 3_000).toISOString(),
+      },
+    ]);
+    // prj_other has no sessions.
+    expect(data.hidden_empty).toBe(1);
+  });
+});
+
+describe("session_digest", () => {
+  it("catches the real error of a failed session and stays small", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    const result = await call("session_digest", { session_id: "ses_a" });
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result).length).toBeLessThanOrEqual(1_500);
+    expect(textOf(result)).not.toContain("\n");
+    const digest = parse(result);
+    expect(digest).toMatchObject({
+      title: "Fix flaky deploy",
+      goal: "the deploy fails on step 3",
+      last_request: "the deploy fails on step 3",
+      files_changed: [],
+      errors: [
+        {
+          msg_id: "msg_a2",
+          type: "ProviderError",
+          status: 429,
+          message: "Free usage limit reached",
+        },
+      ],
+      final_state: { outcome: "failed", finish: "error" },
+      counts: { messages: 3, user: 1, assistant: 1 },
+      fingerprint: "msg_a3@3:failed",
+    });
+  });
+
+  it("lists changed files from tool inputs and counts tools, without any content", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    const result = await call("session_digest", { session_id: "ses_b" });
+    const digest = parse(result);
+    expect(digest.files_changed).toEqual(["src/search.ts"]);
+    expect(digest.tools_used).toEqual({ write: 1 });
+    expect(digest.final_state.outcome).toBe("succeeded");
+    const text = textOf(result);
+    for (const marker of ["REASONING-ONLY-MARKER", "FILE-CONTENT-MARKER", "TOOL-OUTPUT-MARKER"]) {
+      expect(text).not.toContain(marker);
+    }
+  });
+
+  it("reads with GET only, never sends order with a cursor and never starts OpenCode", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    await call("session_digest", { session_id: "ses_a" });
+    expect(fake!.requests.length).toBeGreaterThan(0);
+    expect(fake!.requests.filter((request) => request.method !== "GET")).toEqual([]);
+    expect(
+      fake!.requests.filter(
+        (request) => /[?&]order=/.test(request.path) && /[?&]cursor=/.test(request.path),
+      ),
+    ).toEqual([]);
+    expect(fake!.legacyCalls).toBe(0);
+  });
+
+  it("reports an unknown or malformed session id clearly", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    const unknown = await call("session_digest", { session_id: "ses_nope" });
+    expect(unknown.isError).toBe(true);
+    expect(parse(unknown).error.code).toBe("OPENCODE_SESSION_NOT_FOUND");
+    const malformed = await call("session_digest", { session_id: "abc" });
+    expect(malformed.isError).toBe(true);
+    expect(parse(malformed).error.code).toBe("INVALID_ARGUMENT");
+  });
+
+  it("fails clearly, without starting OpenCode, when no server is connected", async () => {
+    await setup({ fake: { projects: PROJECTS }, connect: false });
+    const result = await call("session_digest", { session_id: "ses_a" });
+    expect(result.isError).toBe(true);
+    expect(parse(result).error.code).toBe("OPENCODE_UNAVAILABLE");
+    expect(manager!.getStatus()).toEqual([]);
+    expect(fake!.requests).toEqual([]);
+  });
+});
+
+describe("read_messages", () => {
+  it("reads the messages that find_sessions pointed at", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    const found = parse(await call("find_sessions", { project: "prj_demo", query: "zebra" }));
+    const hit = found.sessions[0];
+    const result = await call("read_messages", {
+      session_id: hit.session_id,
+      message_ids: hit.message_ids,
+    });
+    expect(result.isError).toBeFalsy();
+    const data = parse(result);
+    expect(data.messages).toHaveLength(1);
+    expect(data.messages[0]).toMatchObject({
+      id: "msg_b2",
+      type: "assistant",
+      finish: "stop",
+      tools: [{ name: "write", status: "completed", input_summary: "src/search.ts" }],
+      truncated: false,
+    });
+    expect(data.messages[0].text).toContain("zebra scoring");
+    const text = textOf(result);
+    for (const marker of ["REASONING-ONLY-MARKER", "FILE-CONTENT-MARKER", "TOOL-OUTPUT-MARKER"]) {
+      expect(text).not.toContain(marker);
+    }
+  });
+
+  it("shows neighbours with around and keeps to max_chars", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    const data = parse(
+      await call("read_messages", { session_id: "ses_a", around: "msg_a2", before: 1, after: 1 }),
+    );
+    expect(data.messages.map((message: { id: string }) => message.id)).toEqual([
+      "msg_a1",
+      "msg_a2",
+      "msg_a3",
+    ]);
+    expect(data.messages[1].error).toEqual({
+      type: "ProviderError",
+      status: 429,
+      message: "Free usage limit reached",
+    });
+    const tight = await call("read_messages", {
+      session_id: "ses_a",
+      around: "msg_a2",
+      before: 1,
+      after: 1,
+      max_chars: 500,
+    });
+    expect(textOf(tight).length).toBeLessThanOrEqual(500);
+  });
+
+  it("needs exactly one of message_ids and around", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    for (const args of [
+      { session_id: "ses_a" },
+      { session_id: "ses_a", message_ids: ["msg_a1"], around: "msg_a2" },
+    ]) {
+      const result = await call("read_messages", args);
+      expect(result.isError).toBe(true);
+      expect(parse(result).error.code).toBe("INVALID_ARGUMENT");
+    }
+  });
+
+  it("reports an unknown session and unknown message ids", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    const unknown = await call("read_messages", { session_id: "ses_nope", message_ids: ["msg_x"] });
+    expect(unknown.isError).toBe(true);
+    expect(parse(unknown).error.code).toBe("OPENCODE_SESSION_NOT_FOUND");
+    const missing = parse(
+      await call("read_messages", { session_id: "ses_a", message_ids: ["msg_a1", "msg_zzz"] }),
+    );
+    expect(missing.missing_ids).toEqual(["msg_zzz"]);
+    expect(missing.messages).toHaveLength(1);
+  });
+
+  it("uses GET requests only", async () => {
+    await setup({ fake: { projects: PROJECTS } });
+    seedDemo(fake!);
+    await call("read_messages", { session_id: "ses_a", around: "msg_a2" });
+    await call("read_messages", { session_id: "ses_a", message_ids: ["msg_a1"] });
+    expect(fake!.requests.filter((request) => request.method !== "GET")).toEqual([]);
+    expect(fake!.legacyCalls).toBe(0);
+  });
+});

@@ -22,6 +22,21 @@ export async function readOnlyClient(ctx: AppContext): Promise<OpenCodeClient> {
   );
 }
 
+/**
+ * Like `asBridgeError`, for tools that read one session: a 404 on the session becomes
+ * OPENCODE_SESSION_NOT_FOUND instead of a generic OpenCode error.
+ */
+export function asSessionError(error: unknown, sessionId: string): unknown {
+  if (error instanceof OpenCodeApiError && error.status === 404) {
+    return new BridgeError(
+      "OPENCODE_SESSION_NOT_FOUND",
+      `No OpenCode session "${sessionId}". Use a session_id from find_sessions.`,
+      { cause: error },
+    );
+  }
+  return asBridgeError(error);
+}
+
 /** Turn an OpenCode API failure into a structured bridge error; other errors pass through. */
 export function asBridgeError(error: unknown): unknown {
   if (isBridgeError(error) || !(error instanceof OpenCodeApiError)) return error;

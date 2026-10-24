@@ -17,7 +17,9 @@ import { registerGetDiff } from "./tools/get-diff.js";
 import { registerGetSession } from "./tools/get-session.js";
 import { registerListAgents } from "./tools/list-agents.js";
 import { registerListProjects } from "./tools/list-projects.js";
+import { registerReadMessages } from "./tools/read-messages.js";
 import { registerSendMessage } from "./tools/send-message.js";
+import { registerSessionDigest } from "./tools/session-digest.js";
 import { registerWaitSession } from "./tools/wait-session.js";
 import { kickSweep, registerDiscardTask, registerMergeTask } from "./tools/worktree-tasks.js";
 
@@ -46,7 +48,7 @@ export const SERVER_INSTRUCTIONS = [
   "Then call merge_task to squash the work onto the base branch as one commit, or discard_task to drop it. Never leave worktrees unresolved without telling the user.",
   "Paths supplied to delegate_task are exploration hints, not boundaries.",
   "To run agents in parallel, call delegate_task with background: true for each (it returns a session_id at once), then wait_session on each id. At most limits.maxConcurrentRuns (default 3) runs execute at once; the rest queue.",
-  "To find earlier work in OpenCode (including sessions started in OpenCode Desktop): list_projects, then find_sessions with a project and an optional query, then (in later versions) session_digest and read_messages. These tools are read-only and never start OpenCode.",
+  "To find earlier work in OpenCode (including sessions started in OpenCode Desktop): list_projects, then find_sessions with a project and an optional query, then session_digest for a short summary of one session, then read_messages for only the messages you need (find_sessions message_ids feed it directly). These tools are read-only and never start OpenCode.",
 ].join(" ");
 
 export interface CreateMcpServerOptions {
@@ -93,6 +95,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   registerListAgents(server, ctx);
   registerListProjects(server, ctx);
   registerFindSessions(server, ctx);
+  registerSessionDigest(server, ctx);
+  registerReadMessages(server, ctx);
 
   // Worktrees whose directory was still locked when they were merged/discarded.
   kickSweep(ctx);

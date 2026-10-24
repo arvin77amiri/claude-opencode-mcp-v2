@@ -1,5 +1,5 @@
 import type { ProjectInfo, SessionListPage, SessionListQuery } from "./api-types.js";
-import { projectName } from "./project-resolver.js";
+import { normalizePathKey, projectName } from "./project-resolver.js";
 import { isRootSession } from "./session-search.js";
 
 /** The read-only slice of OpenCodeClient that project listing needs. */
@@ -14,6 +14,8 @@ export interface ProjectCatalogClient {
 
 export interface ProjectRow {
   id: string;
+  /** Twin projects (the same folder under several ids) merged into this row; `id` comes first. */
+  ids?: string[];
   name: string;
   path: string;
   /** Root sessions (sub-agent runs excluded); null when it could not be read in time. */
@@ -99,6 +101,44 @@ export async function projectRow(
   };
 }
 
+/**
+ * Rows of projects that share one canonical folder become ONE row: counts add up, the newest
+ * activity wins, `id` is the most recently active twin and `ids` lists all of them. Rows with
+ * different paths are left alone; the order of first appearance is kept.
+ */
+export function mergeTwinRows(rows: readonly ProjectRow[]): ProjectRow[] {
+  const groups = new Map<string, ProjectRow[]>();
+  for (const [index, row] of rows.entries()) {
+    const key = normalizePathKey(row.path);
+    // An empty path never merges: the rows cannot be told to be the same folder.
+    const slot = key === "" ? `#${index}` : key;
+    groups.set(slot, [...(groups.get(slot) ?? []), row]);
+  }
+  return [...groups.values()].map((group) => {
+    const [first] = group;
+    if (!first || group.length === 1) return first as ProjectRow;
+    const primary = group.reduce((best, row) =>
+      (row.last_activity ?? "") > (best.last_activity ?? "") ? row : best,
+    );
+    const counts = group.map((row) => row.session_count);
+    const total = counts.every((count): count is number => count !== null)
+      ? counts.reduce((sum, count) => sum + count, 0)
+      : null;
+    const newest = group.reduce<string | null>(
+      (best, row) => ((row.last_activity ?? "") > (best ?? "") ? row.last_activity : best),
+      null,
+    );
+    return {
+      id: primary.id,
+      ids: [primary.id, ...group.filter((row) => row !== primary).map((row) => row.id)],
+      name: primary.name,
+      path: primary.path,
+      session_count: total,
+      last_activity: newest,
+    };
+  });
+}
+
 /** Rows for the given projects (GET only); stops starting work once `signal` aborts. */
 export async function describeProjects(
   client: ProjectCatalogClient,
@@ -131,11 +171,12 @@ export async function listProjectRows(
       ...(options.concurrency ? { concurrency: options.concurrency } : {}),
       signal: controller.signal,
     });
-    const used = rows.filter((row) => row.session_count !== 0);
+    const merged = mergeTwinRows(rows);
+    const used = merged.filter((row) => row.session_count !== 0);
     used.sort((a, b) => (b.last_activity ?? "").localeCompare(a.last_activity ?? ""));
     return {
       projects: used.slice(0, MAX_PROJECT_ROWS),
-      hidden_empty: rows.length - used.length,
+      hidden_empty: merged.length - used.length,
       omitted: Math.max(0, used.length - MAX_PROJECT_ROWS),
       partial,
     };

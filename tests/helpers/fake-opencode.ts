@@ -486,6 +486,7 @@ export class FakeOpenCode {
             id: session.id,
             title: session.title,
             time: { created: Date.now(), updated: Date.now() },
+            ...(session.outcome ? { outcome: session.outcome } : {}),
           },
           location: { directory: session.directory },
         });
@@ -534,14 +535,47 @@ export class FakeOpenCode {
 
       if (sub === "/message" && method === "GET") {
         const limit = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
-        const order = url.searchParams.get("order") ?? "asc";
+        const cursor = url.searchParams.get("cursor");
         const type = url.searchParams.get("type");
+        if (cursor && url.searchParams.get("order")) {
+          this.json(
+            res,
+            { _tag: "InvalidCursorError", message: "order cannot be used with cursor" },
+            400,
+          );
+          return;
+        }
+        // A cursor fixes the direction: it carries "<order>:<offset>".
+        const decoded = cursor ? Buffer.from(cursor, "base64url").toString() : "";
+        const order = cursor
+          ? (decoded.split(":")[0] ?? "asc")
+          : (url.searchParams.get("order") ?? "asc");
+        const offset = cursor ? Number.parseInt(decoded.split(":")[1] ?? "0", 10) : 0;
         let list = type
           ? session.messages.filter((message) => message.type === type)
           : [...session.messages];
         if (order === "desc") list.reverse();
-        if (Number.isFinite(limit) && limit > 0) list = list.slice(0, limit);
-        this.json(res, { data: list, cursor: {} });
+        if (!(Number.isFinite(limit) && limit > 0)) {
+          this.json(res, { data: list.slice(offset), cursor: {} });
+          return;
+        }
+        list = list.slice(offset, offset + limit);
+        // Like OpenCode, `cursor.next` is returned even on the last page.
+        const next = Buffer.from(`${order}:${offset + limit}`).toString("base64url");
+        this.json(res, { data: list, cursor: { previous: null, next } });
+        return;
+      }
+
+      const byId = sub.match(/^\/message\/([^/]+)$/);
+      if (byId && method === "GET") {
+        const found = session.messages.find(
+          (message) => message.id === decodeURIComponent(byId[1] ?? ""),
+        );
+        if (!found) {
+          this.json(res, { _tag: "MessageNotFoundError", message: "message not found" }, 404);
+          return;
+        }
+        this.json(res, { data: found });
         return;
       }
 

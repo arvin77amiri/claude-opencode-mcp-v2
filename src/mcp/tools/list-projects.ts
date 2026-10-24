@@ -7,11 +7,12 @@ import { errorResult, jsonResult } from "../tool-utils.js";
 
 export const LIST_PROJECTS_DESCRIPTION =
   "List the OpenCode projects (folders) whose past sessions can be browsed: " +
-  "[{id, name, path, session_count, last_activity}], newest activity first. " +
+  "[{id, ids?, name, path, session_count, last_activity}], newest activity first. " +
   "session_count counts root sessions (sub-agent runs excluded); projects without sessions are " +
-  "left out (hidden_empty). Read-only (GET only); never starts OpenCode. " +
+  "left out (hidden_empty). A folder that OpenCode lists under several project ids (twins) is ONE " +
+  "row: counts add up and ids lists every id. Read-only (GET only); never starts OpenCode. " +
   "Workflow to find earlier work: list_projects -> find_sessions (project = id, path or name) -> " +
-  "session_digest -> read_messages (the last two arrive in later versions).";
+  "session_digest (summary of one session) -> read_messages (only the messages you need).";
 
 export function registerListProjects(server: McpServer, ctx: AppContext): void {
   server.registerTool(

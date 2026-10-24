@@ -109,7 +109,9 @@ describe("MCP tool surface", () => {
       "list_agents",
       "list_projects",
       "merge_task",
+      "read_messages",
       "send_message",
+      "session_digest",
       "wait_session",
     ]);
   });

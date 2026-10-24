@@ -299,3 +299,36 @@ export function fitToBudget<T extends BudgetedPayload>(payload: T, maxChars = 4_
   }
   return { ...current, sessions, omitted: payload.sessions.length - sessions.length };
 }
+
+/**
+ * Combine the results of twin projects (one folder under several project ids) into one answer:
+ * title matches first, then content matches, then plain recents, each group newest first.
+ */
+export function mergeSearchResults(results: readonly SearchResult[], limit: number): SearchResult {
+  const rank = (hit: SessionHit): number =>
+    hit.match === "title" ? 0 : hit.match === "content" ? 1 : 2;
+  const seen = new Set<string>();
+  const hits = results
+    .flatMap((result) => result.sessions)
+    .filter((hit) => !seen.has(hit.session_id) && seen.add(hit.session_id))
+    .map((hit, index) => ({ hit, index }))
+    .sort(
+      (a, b) =>
+        rank(a.hit) - rank(b.hit) ||
+        (b.hit.updated ?? "").localeCompare(a.hit.updated ?? "") ||
+        a.index - b.index,
+    )
+    .map(({ hit }) => hit)
+    .slice(0, limit);
+
+  const errors = results.reduce((sum, result) => sum + (result.scan_errors ?? 0), 0);
+  const firstError = results.find((result) => result.scan_error)?.scan_error;
+  return {
+    sessions: hits,
+    scanned: results.reduce((sum, result) => sum + result.scanned, 0),
+    partial: results.some((result) => result.partial),
+    ...(errors > 0
+      ? { scan_errors: errors, ...(firstError ? { scan_error: firstError } : {}) }
+      : {}),
+  };
+}
