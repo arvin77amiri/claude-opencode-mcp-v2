@@ -372,6 +372,14 @@ background runs, plus live OpenCode status
 (`opencode.status` is `idle`, `busy` or `retry` when a server is running), and
 `usage` added up over every run of the session.
 
+### Session ids
+
+Every tool that acts on an existing session (`get_session`, `wait_session`, `get_diff`,
+`send_message`, `abort_session`, `merge_task`, `discard_task`, `session_digest`,
+`read_messages`) takes its id as **`session`**; `session_id` is accepted as an alias. Some
+client paths (Claude Desktop's remote device link) do not deliver an argument named
+`session_id`, so prefer `session`.
+
 ### Worktree isolation
 
 Every editing task runs in its **own git worktree on its own branch**
@@ -389,13 +397,13 @@ one repository at the same time.
   edits cannot be granted edits later; start a new `delegate_task`.
 - Review with `get_diff`; to have `reviewer`/`tester` check the work, pass the
   worktree `path` as their `cwd`.
-- **`merge_task`** `{ session_id, message? }` squashes everything on the task
+- **`merge_task`** `{ session, message? }` squashes everything on the task
   branch (committed or not) into **one commit** on the base branch, then deletes
   the worktree and branch. The bridge makes the commit; agents still cannot run
   `git commit`. It requires your checkout to still be on the base branch with no
   uncommitted changes to tracked files. On conflict it returns `MERGE_CONFLICT`,
   restores your checkout exactly and keeps the worktree.
-- **`discard_task`** `{ session_id }` deletes the worktree and branch.
+- **`discard_task`** `{ session }` deletes the worktree and branch.
 
 Disable with `"worktrees": { "enabled": false }` to get the older shared-workspace
 behavior.
