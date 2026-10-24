@@ -53,15 +53,55 @@ export interface PermissionRequest {
 
 export type SessionOutcome = "succeeded" | "failed" | "interrupted";
 
+/**
+ * `Session.StructuredError`: `type` and `message` are always present; `status` is the HTTP
+ * status of a provider error. Assistant messages, idle messages and failed tools carry it.
+ */
+export interface StructuredError {
+  type: string;
+  message: string;
+  status?: number;
+  [key: string]: unknown;
+}
+
 export interface SessionInfo {
   id: string;
   title?: string;
+  /** Present on sub-agent sessions; root sessions have none. */
+  parentID?: string;
+  projectID?: string;
   agent?: string;
   model?: ModelRef;
   cost?: number;
   outcome?: SessionOutcome;
   location?: LocationRef;
-  time?: { created: number; updated: number; idle?: number };
+  time?: { created: number; updated: number; idle?: number; archived?: number };
+}
+
+/** `Project.Info` from `GET /api/project`. `name` is often empty; `canonical` is the folder. */
+export interface ProjectInfo {
+  id: string;
+  canonical: string;
+  name?: string;
+  sandboxes?: string[];
+  time?: { created?: number; updated?: number; active?: number };
+}
+
+export interface SessionListQuery {
+  project?: string;
+  directory?: string;
+  /** Matches session TITLES only. */
+  search?: string;
+  /** Sent as a string param. */
+  limit?: number;
+  /** Only valid for the first page: the API answers 400 when sent together with `cursor`. */
+  order?: "asc" | "desc";
+  cursor?: string;
+}
+
+export interface SessionListPage {
+  data: SessionInfo[];
+  cursor?: { previous?: string; next?: string };
 }
 
 export interface CreateSessionBody {
@@ -139,7 +179,8 @@ export interface IdleMessage {
   id: string;
   type: "idle";
   outcome: SessionOutcome;
-  error?: unknown;
+  /** Seen live when `outcome` is "failed"; missing from the OpenAPI schema (2.0.22). */
+  error?: StructuredError;
   time: { created: number };
 }
 

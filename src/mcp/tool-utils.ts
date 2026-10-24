@@ -10,10 +10,19 @@ import type { Logger } from "../util/logger.js";
 
 export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
-export function jsonResult(value: unknown, options: { isError?: boolean } = {}): CallToolResult {
-  const text = JSON.stringify(value, null, 2) ?? String(value);
+export interface JsonResultOptions {
+  isError?: boolean;
+  /** One-line JSON instead of indented: smaller answers for the read-only catalog tools. */
+  compact?: boolean;
+  /** Set false to send the text block only (structuredContent would double the size). */
+  structured?: boolean;
+}
+
+export function jsonResult(value: unknown, options: JsonResultOptions = {}): CallToolResult {
+  const text =
+    (options.compact ? JSON.stringify(value) : JSON.stringify(value, null, 2)) ?? String(value);
   const result: CallToolResult = { content: [{ type: "text", text }] };
-  if (value && typeof value === "object" && !Array.isArray(value)) {
+  if (options.structured !== false && value && typeof value === "object" && !Array.isArray(value)) {
     result.structuredContent = value as Record<string, unknown>;
   }
   if (options.isError) result.isError = true;

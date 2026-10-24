@@ -58,6 +58,42 @@ describe("OpenCodeClient", () => {
     expect(await client.agent("nope")).toBeNull();
   });
 
+  it("lists projects, counts sessions and pages sessions without order+cursor", async () => {
+    fake = new FakeOpenCode({
+      projects: [
+        { id: "prj_1", canonical: "C:\\work\\one" },
+        { id: "prj_2", canonical: "C:\\work\\two", name: "Two" },
+      ],
+    });
+    for (let index = 1; index <= 5; index += 1) {
+      fake.seedSession({ projectID: "prj_1", title: `s${index}`, updated: index * 100 });
+    }
+    fake.seedSession({ projectID: "prj_2", title: "other", updated: 1 });
+    const client = new OpenCodeClient({ baseUrl: await fake.listen() });
+
+    expect((await client.projects()).map((project) => project.id)).toEqual(["prj_1", "prj_2"]);
+    expect(await client.sessionCount("prj_1")).toBe(5);
+
+    const first = await client.listSessions({ project: "prj_1", limit: 2, order: "desc" });
+    expect(first.data.map((session) => session.title)).toEqual(["s5", "s4"]);
+    const cursor = first.cursor?.next;
+    expect(cursor).toBeTruthy();
+    // `order` together with `cursor` is a 400 on the server: the client must drop it.
+    const second = await client.listSessions({
+      project: "prj_1",
+      limit: 2,
+      order: "desc",
+      ...(cursor ? { cursor } : {}),
+    });
+    expect(second.data.map((session) => session.title)).toEqual(["s3", "s2"]);
+
+    const listings = fake.requests.filter((request) => request.path.startsWith("/api/session?"));
+    expect(listings[0]?.path).toContain("limit=2");
+    expect(listings[0]?.path).toContain("order=desc");
+    expect(listings[1]?.path).toContain("cursor=");
+    expect(listings[1]?.path).not.toContain("order=");
+  });
+
   it("streams parsed SSE events", async () => {
     fake = new FakeOpenCode();
     const client = new OpenCodeClient({ baseUrl: await fake.listen() });

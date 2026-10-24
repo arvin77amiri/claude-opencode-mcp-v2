@@ -37,7 +37,29 @@ export interface FakePromptResponse {
   onBeforeRespond?: () => Promise<void> | void;
 }
 
+export interface FakeProject {
+  id: string;
+  canonical: string;
+  /** Left out of the answer when undefined (real projects often have no name). */
+  name?: string;
+  sandboxes?: string[];
+  updated?: number;
+}
+
+export interface SeedSession {
+  id?: string;
+  projectID: string;
+  title: string;
+  /** Epoch ms; sessions are listed newest first by this value. */
+  updated: number;
+  directory?: string;
+  outcome?: "succeeded" | "failed" | "interrupted";
+  parentID?: string;
+  messages?: Array<{ id: string; type: string; [key: string]: unknown }>;
+}
+
 export interface FakeOpenCodeOptions {
+  projects?: FakeProject[];
   version?: string;
   agents?: FakeAgent[];
   /** When set, POST /api/session reports this directory instead of the requested one. */
@@ -73,6 +95,10 @@ interface FakeSession {
   messages: FakeMessage[];
   running: boolean;
   interrupted: boolean;
+  projectID?: string;
+  updated?: number;
+  outcome?: string;
+  parentID?: string;
 }
 
 const VARIANT_SUFFIXES = ["ro", "edit", "bash", "rw"] as const;
@@ -100,6 +126,8 @@ export class FakeOpenCode {
   readonly agents: FakeAgent[];
   readonly version: string;
   readonly authHeaders: string[] = [];
+  /** Every /api request received: method and path with query string. */
+  readonly requests: Array<{ method: string; path: string }> = [];
   private readonly options: FakeOpenCodeOptions;
   private readonly streams = new Set<http.ServerResponse>();
   private counter = 0;
@@ -147,6 +175,61 @@ export class FakeOpenCode {
 
   private nextId(prefix: string): string {
     return `${prefix}_${String(++this.counter).padStart(10, "0")}`;
+  }
+
+  /** Add a pre-existing session (as if started in OpenCode Desktop) and return its id. */
+  seedSession(input: SeedSession): string {
+    const id = input.id ?? this.nextId("ses");
+    this.sessions.set(id, {
+      id,
+      directory: input.directory ?? process.cwd(),
+      title: input.title,
+      permissions: [],
+      messages: input.messages ?? [],
+      running: false,
+      interrupted: false,
+      projectID: input.projectID,
+      updated: input.updated,
+      ...(input.outcome ? { outcome: input.outcome } : {}),
+      ...(input.parentID ? { parentID: input.parentID } : {}),
+    });
+    return id;
+  }
+
+  private listSessions(url: URL, res: http.ServerResponse): void {
+    const project = url.searchParams.get("project");
+    const search = url.searchParams.get("search")?.toLowerCase();
+    const cursor = url.searchParams.get("cursor");
+    const order = url.searchParams.get("order");
+    if (cursor && order) {
+      this.json(
+        res,
+        { _tag: "InvalidCursorError", message: "order cannot be used with cursor" },
+        400,
+      );
+      return;
+    }
+    const limit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const offset = cursor ? Number.parseInt(Buffer.from(cursor, "base64url").toString(), 10) : 0;
+    const sign = order === "asc" ? 1 : -1;
+    const all = [...this.sessions.values()]
+      .filter((session) => !project || session.projectID === project)
+      .filter((session) => !search || session.title.toLowerCase().includes(search))
+      .sort((a, b) => sign * ((a.updated ?? 0) - (b.updated ?? 0)));
+    const data = all.slice(offset, offset + limit).map((session) => ({
+      id: session.id,
+      projectID: session.projectID ?? "",
+      title: session.title,
+      cost: 0,
+      tokens: {},
+      time: { created: (session.updated ?? 0) - 1_000, updated: session.updated ?? 0 },
+      location: { directory: session.directory },
+      ...(session.outcome ? { outcome: session.outcome } : {}),
+      ...(session.parentID ? { parentID: session.parentID } : {}),
+    }));
+    // Like OpenCode, `cursor.next` is returned even on the last page.
+    const next = Buffer.from(String(offset + limit)).toString("base64url");
+    this.json(res, { data, cursor: { previous: null, next } });
   }
 
   private async readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
@@ -247,6 +330,8 @@ export class FakeOpenCode {
     const url = new URL(req.url ?? "/", "http://localhost");
     const pathname = url.pathname;
     const method = req.method ?? "GET";
+    if (pathname.startsWith("/api/"))
+      this.requests.push({ method, path: `${pathname}${url.search}` });
 
     if (!pathname.startsWith("/api/")) {
       // OpenCode 2 serves its SPA (HTML, HTTP 200) for every unknown route.
@@ -343,6 +428,35 @@ export class FakeOpenCode {
       return;
     }
 
+    if (pathname === "/api/project" && method === "GET") {
+      // OpenCode answers this route with a bare array, not an envelope.
+      this.json(
+        res,
+        (this.options.projects ?? []).map((project) => ({
+          id: project.id,
+          canonical: project.canonical,
+          ...(project.name !== undefined ? { name: project.name } : {}),
+          sandboxes: project.sandboxes ?? [],
+          time: { created: 1, updated: project.updated ?? 1, active: project.updated ?? 1 },
+        })),
+      );
+      return;
+    }
+
+    if (pathname === "/api/experimental/session/stats" && method === "GET") {
+      const project = url.searchParams.get("project");
+      const sessions = [...this.sessions.values()].filter(
+        (session) => !project || session.projectID === project,
+      ).length;
+      this.json(res, { data: { sessions, subagents: 0, prompts: 0, steps: 0 } });
+      return;
+    }
+
+    if (pathname === "/api/session" && method === "GET") {
+      this.listSessions(url, res);
+      return;
+    }
+
     if (pathname === "/api/session/active" && method === "GET") {
       const data: Record<string, unknown> = {};
       for (const session of this.sessions.values()) {
@@ -421,7 +535,10 @@ export class FakeOpenCode {
       if (sub === "/message" && method === "GET") {
         const limit = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
         const order = url.searchParams.get("order") ?? "asc";
-        let list = [...session.messages];
+        const type = url.searchParams.get("type");
+        let list = type
+          ? session.messages.filter((message) => message.type === type)
+          : [...session.messages];
         if (order === "desc") list.reverse();
         if (Number.isFinite(limit) && limit > 0) list = list.slice(0, limit);
         this.json(res, { data: list, cursor: {} });

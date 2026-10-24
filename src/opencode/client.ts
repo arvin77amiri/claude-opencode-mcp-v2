@@ -10,10 +10,13 @@ import type {
   PatchSessionBody,
   PermissionReply,
   PermissionRequest,
+  ProjectInfo,
   PromptBody,
   ServerEvent,
   ServerInfo,
   SessionInfo,
+  SessionListPage,
+  SessionListQuery,
   SessionMessage,
 } from "./api-types.js";
 
@@ -220,11 +223,61 @@ export class OpenCodeClient {
   async messages(
     sessionId: string,
     query: { limit?: number; order?: "asc" | "desc"; cursor?: string; type?: string } = {},
+    options: { signal?: AbortSignal } = {},
   ): Promise<MessagePage> {
+    // The API rejects `order` together with `cursor`; the cursor already fixes the direction.
+    const { order, ...rest } = query;
     const page = await this.request<MessagePage>("GET", `/api/session/${enc(sessionId)}/message`, {
-      query,
+      query: query.cursor ? rest : { ...rest, ...(order ? { order } : {}) },
+      ...(options.signal ? { signal: options.signal } : {}),
     });
     return { data: page?.data ?? [], ...(page?.cursor ? { cursor: page.cursor } : {}) };
+  }
+
+  /**
+   * `GET /api/session` (read-only). `search` matches titles only. `order` is sent on the first
+   * page only: with a `cursor` the API answers 400 InvalidCursorError. The server always returns
+   * `cursor.next`, so the end of paging is a page with fewer items than `limit`.
+   */
+  async listSessions(
+    query: SessionListQuery = {},
+    options: { signal?: AbortSignal } = {},
+  ): Promise<SessionListPage> {
+    const { order, cursor, limit, ...filters } = query;
+    const page = await this.request<SessionListPage>("GET", "/api/session", {
+      query: {
+        ...filters,
+        ...(limit !== undefined ? { limit: String(limit) } : {}),
+        ...(cursor ? { cursor } : order ? { order } : {}),
+      },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    const next = page?.cursor?.next;
+    return {
+      data: Array.isArray(page?.data) ? page.data : [],
+      ...(next ? { cursor: { next } } : {}),
+    };
+  }
+
+  /** `GET /api/project` (read-only). */
+  async projects(options: { signal?: AbortSignal } = {}): Promise<ProjectInfo[]> {
+    const result = await this.request<ProjectInfo[] | Envelope<ProjectInfo[]>>(
+      "GET",
+      "/api/project",
+      { ...(options.signal ? { signal: options.signal } : {}) },
+    );
+    const list = Array.isArray(result) ? result : result?.data;
+    return Array.isArray(list) ? list : [];
+  }
+
+  /** Number of sessions of a project (`GET /api/experimental/session/stats`, read-only). */
+  async sessionCount(project: string, options: { signal?: AbortSignal } = {}): Promise<number> {
+    const result = await this.request<Envelope<{ sessions?: number }>>(
+      "GET",
+      "/api/experimental/session/stats",
+      { query: { project }, ...(options.signal ? { signal: options.signal } : {}) },
+    );
+    return result?.data?.sessions ?? 0;
   }
 
   async interrupt(sessionId: string): Promise<boolean> {

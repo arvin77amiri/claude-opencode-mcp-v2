@@ -12,9 +12,11 @@ import { RunSlots } from "./run-slots.js";
 import { registerAbortSession } from "./tools/abort-session.js";
 import { registerCreateSession } from "./tools/create-session.js";
 import { registerDelegateTask } from "./tools/delegate-task.js";
+import { registerFindSessions } from "./tools/find-sessions.js";
 import { registerGetDiff } from "./tools/get-diff.js";
 import { registerGetSession } from "./tools/get-session.js";
 import { registerListAgents } from "./tools/list-agents.js";
+import { registerListProjects } from "./tools/list-projects.js";
 import { registerSendMessage } from "./tools/send-message.js";
 import { registerWaitSession } from "./tools/wait-session.js";
 import { kickSweep, registerDiscardTask, registerMergeTask } from "./tools/worktree-tasks.js";
@@ -44,6 +46,7 @@ export const SERVER_INSTRUCTIONS = [
   "Then call merge_task to squash the work onto the base branch as one commit, or discard_task to drop it. Never leave worktrees unresolved without telling the user.",
   "Paths supplied to delegate_task are exploration hints, not boundaries.",
   "To run agents in parallel, call delegate_task with background: true for each (it returns a session_id at once), then wait_session on each id. At most limits.maxConcurrentRuns (default 3) runs execute at once; the rest queue.",
+  "To find earlier work in OpenCode (including sessions started in OpenCode Desktop): list_projects, then find_sessions with a project and an optional query, then (in later versions) session_digest and read_messages. These tools are read-only and never start OpenCode.",
 ].join(" ");
 
 export interface CreateMcpServerOptions {
@@ -88,6 +91,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   registerMergeTask(server, ctx);
   registerDiscardTask(server, ctx);
   registerListAgents(server, ctx);
+  registerListProjects(server, ctx);
+  registerFindSessions(server, ctx);
 
   // Worktrees whose directory was still locked when they were merged/discarded.
   kickSweep(ctx);
