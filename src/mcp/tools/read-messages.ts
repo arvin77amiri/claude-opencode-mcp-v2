@@ -10,6 +10,7 @@ import {
 import { requestId } from "../../util/text.js";
 import type { AppContext } from "../execute.js";
 import { asSessionError, readOnlyClient } from "../read-client.js";
+import { pickSessionId, type SessionArgs, sessionInput } from "../session-arg.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
 
 export const READ_MESSAGES_DESCRIPTION =
@@ -38,11 +39,7 @@ export function registerReadMessages(server: McpServer, ctx: AppContext): void {
       title: "Read messages of an earlier OpenCode session",
       description: READ_MESSAGES_DESCRIPTION,
       inputSchema: {
-        session_id: z
-          .string()
-          .min(1)
-          .max(200)
-          .describe("A session_id from find_sessions (starts with ses)."),
+        ...sessionInput,
         message_ids: z
           .array(z.string().min(1).max(200))
           .min(1)
@@ -88,24 +85,20 @@ export function registerReadMessages(server: McpServer, ctx: AppContext): void {
       },
       annotations: { readOnlyHint: true },
     },
-    async (args: {
-      session_id: string;
-      message_ids?: string[];
-      around?: string;
-      before?: number;
-      after?: number;
-      max_chars?: number;
-      per_message_chars?: number;
-    }) => {
+    async (
+      args: SessionArgs & {
+        message_ids?: string[];
+        around?: string;
+        before?: number;
+        after?: number;
+        max_chars?: number;
+        per_message_chars?: number;
+      },
+    ) => {
       const rid = requestId();
+      let sessionId = "";
       try {
-        const sessionId = args.session_id.trim();
-        if (!sessionId.startsWith("ses")) {
-          throw new BridgeError(
-            "INVALID_ARGUMENT",
-            `"${args.session_id}" is not a session id (they start with "ses"). Use a session_id from find_sessions.`,
-          );
-        }
+        sessionId = pickSessionId(args);
         const hasIds = (args.message_ids?.length ?? 0) > 0;
         if (hasIds === Boolean(args.around)) {
           throw new BridgeError(
@@ -129,7 +122,7 @@ export function registerReadMessages(server: McpServer, ctx: AppContext): void {
           request_id: rid,
           error: error instanceof Error ? error.message : String(error),
         });
-        return errorResult(asSessionError(error, args.session_id), rid);
+        return errorResult(asSessionError(error, sessionId), rid);
       }
     },
   );

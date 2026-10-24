@@ -1,10 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { BridgeError } from "../../errors.js";
 import { DIGEST_MAX_CHARS, digestSession } from "../../opencode/session-digest.js";
 import { requestId } from "../../util/text.js";
 import type { AppContext } from "../execute.js";
 import { asSessionError, readOnlyClient } from "../read-client.js";
+import { pickSessionId, type SessionArgs, sessionInput } from "../session-arg.js";
 import { errorResult, jsonResult } from "../tool-utils.js";
 
 export const SESSION_DIGEST_DESCRIPTION =
@@ -28,25 +27,14 @@ export function registerSessionDigest(server: McpServer, ctx: AppContext): void 
     {
       title: "Summarize an earlier OpenCode session",
       description: SESSION_DIGEST_DESCRIPTION,
-      inputSchema: {
-        session_id: z
-          .string()
-          .min(1)
-          .max(200)
-          .describe("A session_id from find_sessions (starts with ses)."),
-      },
+      inputSchema: sessionInput,
       annotations: { readOnlyHint: true },
     },
-    async (args: { session_id: string }) => {
+    async (args: SessionArgs) => {
       const rid = requestId();
+      let sessionId = "";
       try {
-        const sessionId = args.session_id.trim();
-        if (!sessionId.startsWith("ses")) {
-          throw new BridgeError(
-            "INVALID_ARGUMENT",
-            `"${args.session_id}" is not a session id (they start with "ses"). Use a session_id from find_sessions.`,
-          );
-        }
+        sessionId = pickSessionId(args);
         const client = await readOnlyClient(ctx);
         const digest = await digestSession(client, sessionId, { maxChars: DIGEST_MAX_CHARS });
         return jsonResult(digest, { compact: true, structured: false });
@@ -55,7 +43,7 @@ export function registerSessionDigest(server: McpServer, ctx: AppContext): void 
           request_id: rid,
           error: error instanceof Error ? error.message : String(error),
         });
-        return errorResult(asSessionError(error, args.session_id), rid);
+        return errorResult(asSessionError(error, sessionId), rid);
       }
     },
   );

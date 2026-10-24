@@ -70,6 +70,23 @@ async function runServer(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // Keys only, never values: shows which arguments really reach the bridge (a client or proxy
+  // between Claude and the bridge may drop or rename one).
+  const deliver = transport.onmessage;
+  transport.onmessage = (message) => {
+    try {
+      if ("method" in message && message.method === "tools/call") {
+        const params = message.params as { name?: string; arguments?: Record<string, unknown> };
+        logger.info("tools/call", {
+          tool: params?.name,
+          arg_keys: Object.keys(params?.arguments ?? {}).join(","),
+        });
+      }
+    } catch {
+      // logging must never break the bridge
+    }
+    deliver?.(message);
+  };
   logger.info("claude-opencode-mcp started", {
     pid: process.pid,
     cwd: process.cwd(),
